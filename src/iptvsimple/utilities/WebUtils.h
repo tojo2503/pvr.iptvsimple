@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <map>
 #include <string>
 
 namespace iptvsimple
@@ -32,6 +33,7 @@ namespace iptvsimple
       static bool IsSpecialUrl(const std::string& url);
       static std::string RedactUrl(const std::string& url);
       static bool Check(const std::string& url, int connectionTimeoutSecs, bool isLocalPath = false);
+      static std::map<std::string, std::string> ConvertStringToHeaders(const std::string& input);
     };
   } // namespace utilities
 } // namespace iptvsimple

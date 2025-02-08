@@ -451,6 +451,10 @@ http://path-to-stream/live/channel-m.mkv
 http://path-to-stream/live/channel-n.mkv
 #EXTINF:-1 media-dir="/movies/scifi",Channel O
 http://path-to-stream/live/channel-o.mkv
+#EXTINF:-1 tvg-name="Channel-P", Channel-P
+#WEBPROP:web-regex="([^"]+\.m3u8)"
+#WEBPROP:web-headers=user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36&referer:https://google.com/
+@http://path-to-stream/live/channel-p.html|user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36
 ```
 
 *Explanation for Catchup entries*
@@ -528,8 +532,12 @@ http://path-to-stream/live/channel-z.ts
 - `#EXTGRP`: A semi-colon separted list of channel groups. Note that this is a begin directive, i.e. all channels following this directive will have these groups until an empty `#EXTGRP` directive is reached. These groupings wil also be reset by any `group-title` tag for an `#EXTINF` channel directive.
 - `#KODIPROP`: A single property in the format `key=value` that can be passed to Kodi. Multiple can be passed each on a separate line.
 - `#EXTVLCOPT`: A single property in the format `key=value` that can be passed to Kodi. Multiple can be passed each on a separate line. Note that if either a `http-user-agent` or a `http-referrer` property is found it will added to the URL as a HTTP header as `user-agent` or `referrer` respectively if not already provided in the URL. These two fields specifically will be dropped as properties whether or not they are added as header values. They will be added in the same format as the `URL` below.
+- `#WEBPROP`: Properties used for web scraping streams from HTML pages. Multiple can be passed each on a separate line.
+  - `web-regex`: A regular expression pattern to extract the stream URL from the HTML content. The first capture group will be used as the stream URL. The URL must be captured within parentheses in the regex pattern, e.g. "([^"]+\.m3u8)".
+  - `web-headers`: HTTP headers to be used when making the request to the web page. Format is `name1:value1&name2:value2`.
 - `#EXT-X-PLAYLIST-TYPE`: If this element is present with a value of `VOD` (Video on Demand) the stream is marked as not being live.
 - `URL`: The final line in each channel stanza is the URL used for the stream. Appending `|user-agent=<agent-name>` will change the user agent. Other HTTP header fields can be set in the same fashion: `|name1=val1&name2=val2` etc. The header fields supported in this way by Kodi can be found [here](#http-header-fields-supported-by-kodi). If you want to pass custom headers that are not supported by Kodi you need to prefix them with an `!`, for example: : `|!name1=val1&!name2=val2`.
+  - `@`: When a URL starts with '@' symbol (e.g. '@http://path-to-stream/live/channel-p.html'), it indicates that the URL points to a web page that contains the actual stream URL. The addon will attempt to extract the stream URL from this web page using either the provided `web-regex` pattern or default patterns. This is useful when the actual stream URL is embedded within a web page rather than being directly accessible.
 
 When processing an XMLTV file the addon will attempt to find a channel loaded from the M3U that matches the EPG channel. It will cycle through the full set of M3U channels checking for one condition on each pass. The first channel found to match is the channel chosen for this EPG channel data.
 

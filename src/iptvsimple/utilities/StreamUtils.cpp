@@ -123,7 +123,8 @@ void StreamUtils::SetAllStreamProperties(std::vector<kodi::addon::PVRStreamPrope
       // strip the headers from streamURL and put it to media headers property
 
       if (channel.GetProperty("inputstream.adaptive.manifest_headers").empty() &&
-          channel.GetProperty("inputstream.adaptive.stream_headers").empty())
+          channel.GetProperty("inputstream.adaptive.stream_headers").empty() &&
+          channel.GetProperty("inputstream.adaptive.common_headers").empty())
       {
         // No stream headers declared by property, check if stream URL has any
         std::string url;
@@ -132,8 +133,7 @@ void StreamUtils::SetAllStreamProperties(std::vector<kodi::addon::PVRStreamPrope
         {
           // Set stream URL without headers and encoded headers as property
           properties.emplace_back(PVR_STREAM_PROPERTY_STREAMURL, url);
-          properties.emplace_back("inputstream.adaptive.manifest_headers", encodedProtocolOptions);
-          properties.emplace_back("inputstream.adaptive.stream_headers", encodedProtocolOptions);
+          properties.emplace_back("inputstream.adaptive.common_headers", encodedProtocolOptions);
           streamUrlSet = true;
         }
       }

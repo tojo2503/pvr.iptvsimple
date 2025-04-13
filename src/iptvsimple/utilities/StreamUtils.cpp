@@ -10,6 +10,7 @@
 #include "../InstanceSettings.h"
 #include "FileUtils.h"
 #include "Logger.h"
+#include "WebStreamExtractor.h"
 #include "WebUtils.h"
 
 #include <kodi/General.h>
@@ -502,4 +503,69 @@ std::string StreamUtils::GetUrlEncodedProtocolOptions(const std::string& protoco
     encodedProtocolOptions.erase(0, 1);
 
   return encodedProtocolOptions;
+}
+
+std::string StreamUtils::WebStreamExtractor(const std::string& webUrl,
+                                            const iptvsimple::data::Channel& currentChannel)
+{
+  bool isWebUrl = currentChannel.GetProperty("isWebUrl") == "true";
+  if (isWebUrl)
+  {
+    std::string webPattern = currentChannel.GetProperty("web-regex");
+    std::string webHeaders = currentChannel.GetProperty("web-headers");
+    std::string mediaHeaders;
+    std::string tempUrl = webUrl;
+    size_t pos = tempUrl.find('|');
+
+    if (pos != std::string::npos)
+    {
+      mediaHeaders = tempUrl.substr(pos);
+      tempUrl = tempUrl.substr(0, pos);
+    }
+
+    std::string extractedUrl =
+        WebStreamExtractor::ExtractStreamUrl(tempUrl, webPattern, webHeaders, false);
+    Logger::Log(LEVEL_DEBUG,
+                "%s - Extracted URL: '%s', webPattern: '%s', webHeaders: '%s', webUrl: '%s'",
+                __FUNCTION__, extractedUrl.c_str(), webPattern.c_str(), webHeaders.c_str(),
+                tempUrl.c_str());
+
+    if (!extractedUrl.empty() && !mediaHeaders.empty())
+      extractedUrl += mediaHeaders;
+
+    return extractedUrl;
+  }
+  return webUrl;
+}
+
+std::string StreamUtils::WebStreamExtractor(const std::string& webUrl,
+                                            const iptvsimple::data::MediaEntry& currentMediaEntry)
+{
+  bool isWebUrl = currentMediaEntry.GetProperty("isWebUrl") == "true";
+  if (isWebUrl)
+  {
+    std::string webPattern = currentMediaEntry.GetProperty("web-regex");
+    std::string webHeaders = currentMediaEntry.GetProperty("web-headers");
+    std::string mediaHeaders;
+    std::string tempUrl = webUrl;
+    size_t pos = tempUrl.find('|');
+    
+    if (pos != std::string::npos)
+    {
+      mediaHeaders = tempUrl.substr(pos);
+      tempUrl = tempUrl.substr(0, pos);
+    }
+
+    std::string extractedUrl =
+        WebStreamExtractor::ExtractStreamUrl(webUrl, webPattern, webHeaders, true);
+    Logger::Log(
+        LEVEL_DEBUG, "%s - Extracted URL: '%s', webPattern: '%s', webHeaders: '%s', webUrl: '%s'",
+        __FUNCTION__, extractedUrl.c_str(), webPattern.c_str(), webHeaders.c_str(), webUrl.c_str());
+
+    if (!extractedUrl.empty() && !mediaHeaders.empty())    
+      extractedUrl += mediaHeaders;
+    
+    return extractedUrl;
+  }
+  return webUrl;
 }

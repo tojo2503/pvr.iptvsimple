@@ -43,6 +43,10 @@ namespace iptvsimple
       static bool ChannelSpecifiesInputstream(const iptvsimple::data::Channel& channe);
       static std::string GetUrlEncodedProtocolOptions(const std::string& protocolOptions);
       static std::string GetEffectiveInputStreamName(const StreamType& streamType, const iptvsimple::data::Channel& channel, std::shared_ptr<iptvsimple::InstanceSettings>& settings);
+      static std::string WebStreamExtractor(const std::string& webUrl,
+                                            const iptvsimple::data::Channel& currentChannel);
+      static std::string WebStreamExtractor(const std::string& webUrl,
+                                            const iptvsimple::data::MediaEntry& currentMediaEntry);
 
     private:
       static bool SupportsFFmpegReconnect(const StreamType& streamType, const std::string& inputstreamName);

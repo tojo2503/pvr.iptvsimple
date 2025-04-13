@@ -166,3 +166,26 @@ bool WebUtils::Check(const std::string& strURL, int connectionTimeoutSecs, bool 
 
   return true;
 }
+
+std::map<std::string, std::string> WebUtils::ConvertStringToHeaders(const std::string& input)
+{
+  std::map<std::string, std::string> result;
+  std::istringstream stream(input);
+  std::string item;
+
+  const char delimiter = '&'; // Default delimiter
+  const char keyValueSeparator = ':'; // Default key-value separator
+
+  while (std::getline(stream, item, delimiter))
+  {
+    size_t pos = item.find(keyValueSeparator);
+    if (pos != std::string::npos)
+    {
+      std::string key = item.substr(0, pos);
+      std::string value = item.substr(pos + 1);
+      result[key] = value;
+    }
+  }
+
+  return result;
+}

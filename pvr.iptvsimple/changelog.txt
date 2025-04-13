@@ -1,3 +1,7 @@
+v21.11.0
+- Add support for web stream extraction from HTML content
+- Add support for custom regex patterns for web stream extraction
+
 v21.10.2
 - Add debug logging for EPG loads
 

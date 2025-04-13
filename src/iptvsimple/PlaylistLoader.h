@@ -54,6 +54,7 @@ namespace iptvsimple
   static const std::string EXTVLCOPT_DASH_MARKER   = "#EXTVLCOPT--";
   static const std::string RADIO_MARKER            = "radio=";
   static const std::string PLAYLIST_TYPE_MARKER    = "#EXT-X-PLAYLIST-TYPE:";
+  static const std::string WEBPROP_MARKER          = "#WEBPROP:";
 
   class PlaylistLoader
   {

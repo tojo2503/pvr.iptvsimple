@@ -1,3 +1,7 @@
+v22.5.1
+- Add support to inputstream.adaptive.common_headers to set headers
+- Fix an issue that was replacing user headers set with inputstream.adaptive.common_headers
+
 v22.5.0
 - Add support for web stream extraction from HTML content
 - Add support for custom regex patterns for web stream extraction

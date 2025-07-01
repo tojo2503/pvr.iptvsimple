@@ -10,6 +10,7 @@
 #include "InstanceSettings.h"
 #include "utilities/FileUtils.h"
 #include "utilities/Logger.h"
+#include "utilities/WebStreamExtractor.h"
 #include "utilities/WebUtils.h"
 
 #include <chrono>
@@ -200,6 +201,10 @@ bool PlaylistLoader::LoadPlayList()
     {
       ParseSinglePropertyIntoChannel(line, tmpChannel, EXTVLCOPT_DASH_MARKER);
     }
+    else if (StringUtils::StartsWith(line, WEBPROP_MARKER)) //#WEBPROP:
+    {
+      ParseSinglePropertyIntoChannel(line, tmpChannel, WEBPROP_MARKER);
+    }
     else if (StringUtils::StartsWith(line, M3U_GROUP_MARKER)) //#EXTGRP:
     {
       //Clear any previous Group Ids
@@ -221,6 +226,11 @@ bool PlaylistLoader::LoadPlayList()
     }
     else if (line[0] != '#')
     {
+      if (line[0] == '@')
+      {
+        line = line.substr(1);
+        tmpChannel.AddProperty("isWebUrl", "true");
+      }
       Logger::Log(LEVEL_DEBUG, "%s - Adding channel or Media Entry '%s' with URL: '%s'", __FUNCTION__, tmpChannel.GetChannelName().c_str(), line.c_str());
 
       if (m_settings->IsMediaEnabled() &&
@@ -552,7 +562,8 @@ void PlaylistLoader::ParseAndAddChannelGroups(const std::string& groupNamesListS
 
 void PlaylistLoader::ParseSinglePropertyIntoChannel(const std::string& line, Channel& channel, const std::string& markerName)
 {
-  const std::string value = ReadMarkerValue(line, markerName, markerName != KODIPROP_MARKER);
+  const std::string value = ReadMarkerValue(
+      line, markerName, (markerName != KODIPROP_MARKER && markerName != WEBPROP_MARKER));
   auto pos = value.find('=');
   if (pos != std::string::npos)
   {
@@ -568,6 +579,10 @@ void PlaylistLoader::ParseSinglePropertyIntoChannel(const std::string& line, Cha
     else if (markerName == EXTVLCOPT_MARKER)
     {
       addProperty &= prop == "http-user-agent" || prop == "http-referrer" || prop == "program";
+    }
+    else if (markerName == WEBPROP_MARKER)
+    {
+      addProperty &= prop == "web-regex" || prop == "web-headers";
     }
     else if (markerName == KODIPROP_MARKER && (prop == "inputstreamaddon" || prop == "inputstreamclass"))
     {

@@ -5,17 +5,16 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: KODI Main\n"
-"Report-Msgid-Bugs-To: translations@kodi.tv\n"
+"Report-Msgid-Bugs-To: https://github.com/xbmc/xbmc/issues/\n"
 "POT-Creation-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"PO-Revision-Date: 2025-07-28 01:38+0000\n"
-"Last-Translator: Christian Gade <gade@kodi.tv>\n"
-"Language-Team: Tamil (India) <https://kodi.weblate.cloud/projects/kodi-add-ons-pvr-clients/pvr-iptvsimple/ta_in/>\n"
-"Language: ta_in\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: none\n"
+"Language: prs\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
-"X-Generator: Weblate 5.12.2\n"
 
 msgctxt "Addon Summary"
 msgid "Kodi PVR addon for IPTV support."
@@ -35,7 +34,7 @@ msgstr ""
 #. label: Channel Logos - logoPathType
 msgctxt "#30000"
 msgid "Location"
-msgstr "இருப்பிடம்"
+msgstr ""
 
 #. label-option: General - m3uPathType
 #. label-option: General - epgPathType
@@ -56,7 +55,7 @@ msgstr ""
 #. label-option: General - m3uRefreshMode
 msgctxt "#30003"
 msgid "Disabled"
-msgstr "முடக்கப்பட்டன"
+msgstr ""
 
 #. label-option: General - m3uRefreshMode
 msgctxt "#30004"
@@ -92,7 +91,7 @@ msgstr ""
 #. label-group: General - General
 msgctxt "#30010"
 msgid "General"
-msgstr "பொதுவானது"
+msgstr ""
 
 #. label: General - m3uPath
 msgctxt "#30011"
@@ -256,7 +255,7 @@ msgstr ""
 #. label-option: Channel Logos - logoFromEpg
 msgctxt "#30042"
 msgid "Ignore"
-msgstr "புறக்கணி"
+msgstr ""
 
 #. label-option: Channel Logos - logoFromEpg
 msgctxt "#30043"
@@ -297,7 +296,7 @@ msgstr ""
 #. label-group: Genres - Genres
 msgctxt "#30050"
 msgid "Genres"
-msgstr "பிரிவுகள்"
+msgstr ""
 
 #. label: Genres - useEpgGenreText
 msgctxt "#30051"
@@ -347,7 +346,7 @@ msgstr ""
 #. label-category: advanced
 msgctxt "#30060"
 msgid "Advanced"
-msgstr "மேம்பட்ட"
+msgstr ""
 
 #. label-group: Advanced - Multicast relay
 msgctxt "#30061"
@@ -434,7 +433,22 @@ msgctxt "#30077"
 msgid "Ignore Case for EPG Channel IDs"
 msgstr ""
 
-# empty strings from id 30075 to 30099
+#. label-group: General - M3U Startup Check
+msgctxt "#30078"
+msgid "M3U Startup Check"
+msgstr ""
+
+#. label: Catchup - connectCheckTimoutSecs
+msgctxt "#30079"
+msgid "Timeout for check"
+msgstr ""
+
+#. label: Catchup - connectCheckIntervalSecs
+msgctxt "#30080"
+msgid "Interval for check"
+msgstr ""
+
+#empty strings from id 30081 to 30099
 #. label-category: catchup
 #. label-group: Catchup - Catchup
 msgctxt "#30100"
@@ -489,12 +503,12 @@ msgstr ""
 #. label-option: Catchup - allChannelsCatchupMode
 msgctxt "#30110"
 msgid "Disabled"
-msgstr "முடக்கப்பட்டன"
+msgstr ""
 
 #. label-option: Catchup - allChannelsCatchupMode
 msgctxt "#30111"
 msgid "Default"
-msgstr "இயல்புநிலை"
+msgstr ""
 
 #. label-option: Catchup - allChannelsCatchupMode
 msgctxt "#30112"
@@ -582,7 +596,7 @@ msgctxt "#30128"
 msgid "Catchup correction"
 msgstr ""
 
-# empty strings from id 30129 to 30449
+#empty strings from id 30129 to 30449
 #. category-lavel: Media
 #. group-label: Media - Media
 msgctxt "#30150"
@@ -622,7 +636,7 @@ msgstr ""
 #. label-option: Media - mediaEnabled - IGNORE_GROUP_NAME
 msgctxt "#30157"
 msgid "Never"
-msgstr "ஒருபோதும் இல்லை"
+msgstr ""
 
 #. label-option: Media - mediaEnabled - ALWAYS_APPEND
 msgctxt "#30158"
@@ -639,18 +653,18 @@ msgctxt "#30160"
 msgid "Force all M3U entries to be media"
 msgstr ""
 
-# empty strings from id 30128 to 30449
+#empty strings from id 30161 to 30449
 #. label: TV
 msgctxt "#30450"
 msgid "TV"
-msgstr "தொலைக்காட்சி"
+msgstr ""
 
 #. label: Radio
 msgctxt "#30451"
 msgid "Radio"
-msgstr "வானொலி"
+msgstr ""
 
-# empty strings from id 30452 to 30499
+#empty strings from id 30452 to 30499
 #. notification: Inputstreams
 msgctxt "#30500"
 msgid "Inputstream error"
@@ -666,7 +680,7 @@ msgctxt "#30502"
 msgid "The %s addon is not enabled."
 msgstr ""
 
-# empty strings from id 30503 to 30599
+#empty strings from id 30503 to 30599
 #. ############
 #. help info #
 #. ############
@@ -820,7 +834,17 @@ msgctxt "#30627"
 msgid "Ignore Case for EPG Channel IDs, also known as tvg-id's, when matching channels to EPG entries. If disabled, only case senitive matching will be used."
 msgstr ""
 
-# empty strings from id 30627 to 30639
+#. help: EPG Settings - connectionCheckTimeoutSecs
+msgctxt "#30628"
+msgid "When checking for a valid M3U file, the length of time to wait before timing out the attempt."
+msgstr ""
+
+#. help: EPG Settings - connectionCheckIntervalSecs
+msgctxt "#30629"
+msgid "When checking for a valid M3U file, the length of time to wait between attempts. Note that a valid file will only be checked for on startup and once a valid file is found all checks stop."
+msgstr ""
+
+#empty strings from id 30630 to 30639
 #. help info - Channel Logos
 #. help-category: Channel Logos
 msgctxt "#30640"
@@ -852,7 +876,7 @@ msgctxt "#30645"
 msgid "If a local path is selected for logos ignore any logos from the M3U file."
 msgstr ""
 
-# empty strings from id 30645 to 30659
+#empty strings from id 30646 to 30659
 #. help info - Genres
 #. help-category: Genres
 msgctxt "#30660"
@@ -879,7 +903,7 @@ msgctxt "#30664"
 msgid "If location is [B]Remote Path[/B] this setting should contain a valid URL."
 msgstr ""
 
-# empty strings from id 30665 to 30679
+#empty strings from id 30665 to 30679
 #. help info - Advanced
 #. help-category: Advanced
 msgctxt "#30680"
@@ -926,7 +950,7 @@ msgctxt "#30688"
 msgid "Use this MIME type as the default if there is not one supplied as a property (KODIPROP) of the channel. Use with care as this will disable any use of the addon's default stream inspection behaviour."
 msgstr ""
 
-# empty strings from id 30689 to 30699
+#empty strings from id 30689 to 30699
 #. help info - Catchup
 #. help-category: Catchup
 msgctxt "#30700"
@@ -983,7 +1007,7 @@ msgctxt "#30710"
 msgid "Adjust the time used for catchup stream URL generation by this value, from -12 hours to +14 hours. Useful for catchup streams which are geo mis-matched to the wrong time. Note that this value can be overridden by values in the M3U file."
 msgstr ""
 
-# empty strings from id 30710 to 307019
+#empty strings from id 30711 to 307019
 #. help info - Timeshift
 #. help-category: Timeshift
 msgctxt "#30720"
@@ -1020,7 +1044,7 @@ msgctxt "#30726"
 msgid "Enable the timeshift feature for UDP based streams. Will only apply to streams that do not select a specific inputstream addon for playback. The inputstream.ffmpegdirect addon will be used for timeshift."
 msgstr ""
 
-# empty strings from id 30727 to 30739
+#empty strings from id 30727 to 30739
 #. help info - Other categories continued
 #. help: General - defaultproviderName
 msgctxt "#30740"
@@ -1042,7 +1066,7 @@ msgctxt "#30743"
 msgid "Settings on customising channel groups."
 msgstr ""
 
-# empty strings from id 30744 to 30799
+#empty strings from id 30744 to 30799
 #. help info - Media
 #. help-category: Media
 msgctxt "#30800"

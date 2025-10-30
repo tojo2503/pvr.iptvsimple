@@ -7,7 +7,7 @@ msgstr ""
 "Project-Id-Version: KODI Main\n"
 "Report-Msgid-Bugs-To: translations@kodi.tv\n"
 "POT-Creation-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"PO-Revision-Date: 2025-09-30 10:29+0000\n"
+"PO-Revision-Date: 2025-10-30 22:29+0000\n"
 "Last-Translator: Cutter <CutterXYZ@users.noreply.github.com>\n"
 "Language-Team: French (France) <https://kodi.weblate.cloud/projects/kodi-add-ons-pvr-clients/pvr-iptvsimple/fr_fr/>\n"
 "Language: fr_fr\n"
@@ -137,12 +137,12 @@ msgstr "Rafraîchir"
 #. label-category: epgsettings
 msgctxt "#30019"
 msgid "EPG Settings"
-msgstr "Paramètres du guide TV"
+msgstr "Paramètres du guide"
 
 #. label-group: EPG Settings - EPG Settings
 msgctxt "#30020"
 msgid "EPG"
-msgstr "Guide électronique des programmes TV"
+msgstr "Guide électronique des programmes"
 
 #. label: EPG Settings - epgPath
 msgctxt "#30021"
@@ -432,7 +432,7 @@ msgstr "Groupes"
 #. label: EPG Settings - epgIgnoreCaseForChannelIds
 msgctxt "#30077"
 msgid "Ignore Case for EPG Channel IDs"
-msgstr "Ignorer la casse pour les identifiants du guide TV"
+msgstr "Ignorer la casse des identifiants des chaînes du guide des programmes"
 
 # empty strings from id 30075 to 30099
 #. label-category: catchup

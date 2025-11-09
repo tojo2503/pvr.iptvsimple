@@ -338,6 +338,9 @@ bool EpgEntry::ParseEpisodeNumberInfo(std::vector<std::pair<std::string, std::st
 
 bool EpgEntry::ParseXmltvNsEpisodeNumberInfo(const std::string& episodeNumberString)
 {
+  // All season and episode numbers start from zero so will need to be incremented.
+  // Apart from the totalNumberOfParts which does not.
+
   size_t found = episodeNumberString.find(".");
   if (found != std::string::npos)
   {
@@ -360,19 +363,11 @@ bool EpgEntry::ParseXmltvNsEpisodeNumberInfo(const std::string& episodeNumberStr
 
     if (!episodePartString.empty())
     {
-      int numElementsParsed = std::sscanf(episodePartString.c_str(), "%d/%d", &m_episodeNumber, &m_episodePartNumber);
+      int totalNumberOfParts = 1;
+      int numElementsParsed = std::sscanf(episodePartString.c_str(), "%d/%d", &m_episodePartNumber, &totalNumberOfParts);
 
-      if (numElementsParsed == 2)
-      {
-        m_episodeNumber++;
-        m_episodePartNumber++;
-      }
-      else if (numElementsParsed == 1)
-      {
-        if (m_episodeNumber == EPG_TAG_INVALID_SERIES_EPISODE)
-          m_episodeNumber++;
-        m_episodePartNumber = EPG_TAG_INVALID_SERIES_EPISODE;
-      }
+      if ((numElementsParsed == 2 && totalNumberOfParts != 1) || numElementsParsed == 1)
+          m_episodePartNumber++;
     }
   }
 

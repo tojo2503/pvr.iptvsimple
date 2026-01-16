@@ -7,7 +7,7 @@ msgstr ""
 "Project-Id-Version: KODI Main\n"
 "Report-Msgid-Bugs-To: translations@kodi.tv\n"
 "POT-Creation-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"PO-Revision-Date: 2026-01-05 10:13+0000\n"
+"PO-Revision-Date: 2026-01-16 20:02+0000\n"
 "Last-Translator: Alexey <signfinder@gmail.com>\n"
 "Language-Team: Russian <https://kodi.weblate.cloud/projects/kodi-add-ons-pvr-clients/pvr-iptvsimple/ru_ru/>\n"
 "Language: ru_ru\n"
@@ -15,7 +15,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=3; plural=n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2;\n"
-"X-Generator: Weblate 5.15.1\n"
+"X-Generator: Weblate 5.15.2\n"
 
 msgctxt "Addon Summary"
 msgid "Kodi PVR addon for IPTV support."
@@ -27,7 +27,7 @@ msgstr "IPTV Simple PVR поддерживает просмотр потоков
 
 msgctxt "Addon Disclaimer"
 msgid "The authors are in no way responsible for failed playings, incorrect EPG times, wasted hours, or any other undesirable effects."
-msgstr "Это нестабильная программа! Авторы не несут ответственности за неудачные воспроизведение, неверные время EPG, потраченное время и прочие нежелательные эффекты."
+msgstr "Авторы никоим образом не несут ответственности за неудачные воспроизведения, неправильное время в EPG, потраченное впустую время или любые другие нежелательные последствия."
 
 #. settings labels
 #. label: General - m3uPathType
@@ -35,7 +35,7 @@ msgstr "Это нестабильная программа! Авторы не н
 #. label: Channel Logos - logoPathType
 msgctxt "#30000"
 msgid "Location"
-msgstr "Расположение"
+msgstr "Местоположение"
 
 #. label-option: General - m3uPathType
 #. label-option: General - epgPathType
@@ -56,7 +56,7 @@ msgstr "Удалённый путь (Интернет адрес)"
 #. label-option: General - m3uRefreshMode
 msgctxt "#30003"
 msgid "Disabled"
-msgstr "Откл."
+msgstr "Выключен"
 
 #. label-option: General - m3uRefreshMode
 msgctxt "#30004"
@@ -97,7 +97,7 @@ msgstr "Основные"
 #. label: General - m3uPath
 msgctxt "#30011"
 msgid "M3U playlist path"
-msgstr "Путь M3U плейлиста"
+msgstr "Путь к M3U плейлисту"
 
 #. label: General - m3uUrl
 msgctxt "#30012"
@@ -137,7 +137,7 @@ msgstr "Обновить"
 #. label-category: epgsettings
 msgctxt "#30019"
 msgid "EPG Settings"
-msgstr "Установки EPG"
+msgstr "Настройки EPG"
 
 #. label-group: EPG Settings - EPG Settings
 msgctxt "#30020"
@@ -208,17 +208,17 @@ msgstr "Ссылка на логотипы каналов"
 #. label-group: General - Radio Groups
 msgctxt "#30033"
 msgid "Radio Groups"
-msgstr "Радио группы"
+msgstr "Группы радио"
 
 #. label: General - tvGroupMoade
 msgctxt "#30034"
 msgid "TV group mode"
-msgstr "Режим ТВ групп"
+msgstr "Режим групп ТВ"
 
 #. label: General - radioGroupMoade
 msgctxt "#30035"
 msgid "Radio group mode"
-msgstr "Режим радио групп"
+msgstr "Режим групп радио"
 
 #. label-option: Channels - tvGroupmode
 #. label-option: Channels - radioGroupGode
@@ -241,12 +241,12 @@ msgstr "Пользовательские группы"
 #. label: Channels - numTvGroups
 msgctxt "#30039"
 msgid "Number of TV groups"
-msgstr "Число ТВ групп"
+msgstr "Число групп ТВ"
 
 #. label-group: Channel Logos - XMLTV Logos Options
 msgctxt "#30040"
 msgid "XMLTV Logos Options"
-msgstr "Установки логотипов из XMLTV"
+msgstr "Параметры логотипов из XMLTV"
 
 #. label: Channel Logos - logoFromEpg
 msgctxt "#30041"
@@ -261,37 +261,37 @@ msgstr "Игнорировать"
 #. label-option: Channel Logos - logoFromEpg
 msgctxt "#30043"
 msgid "Prefer M3U"
-msgstr "Предпочтительно M3U"
+msgstr "Предпочитать M3U"
 
 #. label-option: Channel Logos - logoFromEpg
 msgctxt "#30044"
 msgid "Prefer XMLTV"
-msgstr "Предпочтительно XMLTV"
+msgstr "Предпочитать XMLTV"
 
 #. label: General - oneTvGroup
 msgctxt "#30045"
 msgid "TV group 1"
-msgstr "ТВ группа 1"
+msgstr "Группа ТВ 1"
 
 #. label: General - twoTvGroup
 msgctxt "#30046"
 msgid "TV group 2"
-msgstr "ТВ группа 2"
+msgstr "Группа ТВ 2"
 
 #. label: General - threeTvGroup
 msgctxt "#30047"
 msgid "TV group 3"
-msgstr "ТВ группа 3"
+msgstr "Группа ТВ 3"
 
 #. label: General - fourTvGroup
 msgctxt "#30048"
 msgid "TV group 4"
-msgstr "ТВ группа 4"
+msgstr "Группа ТВ 4"
 
 #. label: General - fiveTvGroup
 msgctxt "#30049"
 msgid "TV group 5"
-msgstr "ТВ группа 5"
+msgstr "Группа ТВ 5"
 
 #. label-category: genres
 #. label-group: Genres - Genres
@@ -312,37 +312,37 @@ msgstr "Путь к файлу жанров"
 #. label: Genres - genresUrl
 msgctxt "#30053"
 msgid "Genres URL"
-msgstr "Ссылка к файлу жанров"
+msgstr "Ссылка на файл жанров"
 
 #. label: Channels - customTvGroupsFile
 msgctxt "#30054"
 msgid "Custom TV groups file"
-msgstr "Файл ТВ групп"
+msgstr "Файл групп ТВ"
 
 #. label: General - oneRadioGroup
 msgctxt "#30055"
 msgid "Radio group 1"
-msgstr "Радио группа 1"
+msgstr "Группа радио 1"
 
 #. label: General - twoRadioGroup
 msgctxt "#30056"
 msgid "Radio group 2"
-msgstr "Радио группа 2"
+msgstr "Группа радио 2"
 
 #. label: General - threeRadioGroup
 msgctxt "#30057"
 msgid "Radio group 3"
-msgstr "Радио группа 3"
+msgstr "Группа радио 3"
 
 #. label: General - fourRadioGroup
 msgctxt "#30058"
 msgid "Radio group 4"
-msgstr "Радио группа 4"
+msgstr "Группа радио 4"
 
 #. label: General - fiveRadioGroup
 msgctxt "#30059"
 msgid "Radio group 5"
-msgstr "Радио группа 5"
+msgstr "Группа радио 5"
 
 #. label-category: advanced
 msgctxt "#30060"
@@ -352,7 +352,7 @@ msgstr "Дополнительно"
 #. label-group: Advanced - Multicast relay
 msgctxt "#30061"
 msgid "Multicast relay (udpxy)"
-msgstr "UDP-to-HTTP прокси (udpxy)"
+msgstr "Многоадресная ретрансляция (udpxy)"
 
 #. label: Advanced - transformMulticastStreamUrls
 msgctxt "#30062"
@@ -362,12 +362,12 @@ msgstr "Преобразовывать мультикаст ссылки"
 #. label: Advanced - udpxyHost
 msgctxt "#30063"
 msgid "Relay hostname or IP address"
-msgstr "Адрес прокси сервера"
+msgstr "Имя хоста или IP-адрес ретранслятора"
 
 #. label: Advanced - udpxyPort
 msgctxt "#30064"
 msgid "Relay port"
-msgstr "Порт"
+msgstr "Порт пересылки"
 
 #. label-group: Advanced - Streaming
 msgctxt "#30065"
@@ -407,17 +407,17 @@ msgstr "Настройки канала по умолчанию"
 #. label: General - numRadioGroups
 msgctxt "#30072"
 msgid "Number of Radio groups"
-msgstr "Число радио групп"
+msgstr "Число групп радио"
 
 #. label: Channels - customRadioGroupsFile
 msgctxt "#30073"
 msgid "Custom Radio groups file"
-msgstr "Файл пользовательских радио групп"
+msgstr "Файл пользовательских групп радио"
 
 #. label: General - radioChannelGroupsOnly
 msgctxt "#30074"
 msgid "Only load Radio channels in groups"
-msgstr "Загружать только радио каналы в группах"
+msgstr "Загружать только каналы радио в группах"
 
 #. help: Channel Logos - useLogosLocalPathOnly
 msgctxt "#30075"
@@ -432,7 +432,7 @@ msgstr "Группы"
 #. label: EPG Settings - epgIgnoreCaseForChannelIds
 msgctxt "#30077"
 msgid "Ignore Case for EPG Channel IDs"
-msgstr "Игнорировать идентификаторы каналов EPG"
+msgstr "Игнорировать регистр для идентификаторов каналов EPG"
 
 # empty strings from id 30075 to 30099
 #. label-category: catchup

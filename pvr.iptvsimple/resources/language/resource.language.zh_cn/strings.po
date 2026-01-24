@@ -7,7 +7,7 @@ msgstr ""
 "Project-Id-Version: KODI Main\n"
 "Report-Msgid-Bugs-To: translations@kodi.tv\n"
 "POT-Creation-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"PO-Revision-Date: 2025-08-11 02:29+0000\n"
+"PO-Revision-Date: 2026-01-24 03:13+0000\n"
 "Last-Translator: wabisabi926 <liwenliang926@163.com>\n"
 "Language-Team: Chinese (Simplified Han script) <https://kodi.weblate.cloud/projects/kodi-add-ons-pvr-clients/pvr-iptvsimple/zh_Hans/>\n"
 "Language: zh_cn\n"
@@ -15,7 +15,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
-"X-Generator: Weblate 5.12.2\n"
+"X-Generator: Weblate 5.15.2\n"
 
 msgctxt "Addon Summary"
 msgid "Kodi PVR addon for IPTV support."
@@ -1072,7 +1072,7 @@ msgstr "如果启用此功能，则将视频点播（VOD）显示为录制内容
 #. label: Media - mediaEnabled
 msgctxt "#30805"
 msgid "If enabled, all IPTV media entries can be shown as PVR recordings. Otherwise, they appear as regular PVR channels."
-msgstr "如果启用，所有 IPTV 媒体条目将显示 为P VR录制内容。否则，它们将显示为常规 PVR 频道。"
+msgstr "如果启用，所有 IPTV 媒体条目将显示 为 P VR 录制内容。否则，它们将显示为常规 PVR 频道。"
 
 #. label: Media - mediaM3UGroupPath
 msgctxt "#30806"

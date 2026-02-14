@@ -233,12 +233,93 @@ bool PlaylistLoader::LoadPlayList()
       }
       Logger::Log(LEVEL_DEBUG, "%s - Adding channel or Media Entry '%s' with URL: '%s'", __FUNCTION__, tmpChannel.GetChannelName().c_str(), line.c_str());
 
+      // ================= PHP 302-REDIRECT HANDLER =================
+      std::string finalStreamUrl = line;
+      
+      // Check if URL is dynamic (PHP/API endpoint)
+      if (WebUtils::IsDynamicUrl(line))
+      {
+        Logger::Log(LEVEL_INFO, "[PHP-Handler] Dynamic URL detected for '%s', fetching x-vip headers...", 
+                    tmpChannel.GetChannelName().c_str());
+        
+        // Fetch PHP response with x-vip-clearkey, x-vip-addheader, and Location
+        // Convert channel properties to map for PHP handler
+        std::map<std::string, std::string> existingHeaders;
+        for (const auto& prop : tmpChannel.GetProperties())
+          existingHeaders[prop.first] = prop.second;
+        
+        PhpDynamicData phpData = WebUtils::FetchDynamicDataAndResolveUrl(line, existingHeaders);
+        
+        // Use final URL from Location header
+        if (phpData.hasRedirect)
+        {
+          finalStreamUrl = phpData.finalUrl;
+          Logger::Log(LEVEL_INFO, "[PHP-Handler] Using final MPD URL: %s", finalStreamUrl.substr(0, 60).c_str());
+        }
+        
+        // Process DRM keys from x-vip-clearkey
+        if (phpData.hasKeys)
+        {
+          Logger::Log(LEVEL_INFO, "[PHP-Handler] %d clearkey(s) extracted from x-vip-clearkey", (int)phpData.keys.size());
+          
+          // Check if M3U already has keys (prefer PHP keys)
+          if (tmpChannel.GetProperties().find("inputstream.adaptive.license_key") != tmpChannel.GetProperties().end())
+          {
+            Logger::Log(LEVEL_INFO, "[PHP-Handler] Overriding existing M3U keys with PHP x-vip-clearkey keys");
+          }
+          
+          // Generate inputstream.adaptive clearkey JSON
+          std::string clearkeyJson = WebUtils::GenerateClearkeyJson(phpData.keys);
+          tmpChannel.AddProperty("inputstream.adaptive.license_type", "clearkey");
+          tmpChannel.AddProperty("inputstream.adaptive.license_key", clearkeyJson);
+          
+          Logger::Log(LEVEL_DEBUG, "[PHP-Handler] Clearkey JSON: %s", clearkeyJson.c_str());
+        }
+        
+        // Process dynamic headers from x-vip-addheader
+        if (phpData.hasHeaders)
+        {
+          Logger::Log(LEVEL_INFO, "[PHP-Handler] %d dynamic header(s) extracted from x-vip-addheader", (int)phpData.headers.size());
+          
+          // Build combined headers string (merge with existing)
+          std::string existingHeadersStr = "";
+          auto existingStreamHeadersIt = tmpChannel.GetProperties().find("inputstream.adaptive.stream_headers");
+          if (existingStreamHeadersIt != tmpChannel.GetProperties().end())
+          {
+            existingHeadersStr = existingStreamHeadersIt->second;
+          }
+          
+          // Merge PHP headers (PHP headers take priority)
+          std::ostringstream combinedHeaders;
+          
+          // First add existing KODIPROP headers
+          if (!existingHeadersStr.empty())
+          {
+            combinedHeaders << existingHeadersStr;
+          }
+          
+          // Then add PHP dynamic headers
+          for (const auto& header : phpData.headers)
+          {
+            if (combinedHeaders.tellp() > 0)
+              combinedHeaders << "&";
+            combinedHeaders << header.first << "=" << header.second;
+            
+            Logger::Log(LEVEL_DEBUG, "[PHP-Handler] Adding dynamic header: %s = %s", 
+                        header.first.c_str(), header.second.c_str());
+          }
+          
+          tmpChannel.AddProperty("inputstream.adaptive.stream_headers", combinedHeaders.str());
+        }
+      }
+      // ============================================================
+
       if (m_settings->IsMediaEnabled() &&
           (isMediaEntry || (m_settings->ShowVodAsRecordings() && !isRealTime)))
       {
         MediaEntry entry = tmpMediaEntry;
         entry.UpdateFrom(tmpChannel);
-        entry.SetStreamURL(line);
+        entry.SetStreamURL(finalStreamUrl);  // Use final URL (after 302 redirect)
 
         if (!m_media.AddMediaEntry(entry, currentChannelGroupIdList, m_channelGroups, channelHadGroups))
           Logger::Log(LEVEL_DEBUG, "%s - Counld not add media entry as an entry with the same gnenerated unique ID already exists", __func__);
@@ -251,7 +332,7 @@ bool PlaylistLoader::LoadPlayList()
           tmpChannel.AddProperty(PVR_STREAM_PROPERTY_ISREALTIMESTREAM, "true");
 
         Channel channel = tmpChannel;
-        channel.SetStreamURL(line);
+        channel.SetStreamURL(finalStreamUrl);  // Use final URL (after 302 redirect)
         channel.ConfigureCatchupMode();
 
         if (!m_channels.AddChannel(channel, currentChannelGroupIdList, m_channelGroups, channelHadGroups))

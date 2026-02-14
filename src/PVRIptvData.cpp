@@ -35,6 +35,9 @@
 #include "p8-platform/util/StringUtils.h"
 #include "client.h"
 
+// PHP 302-Redirect Handler
+#include "iptvsimple/utilities/WebUtils.h"
+
 #define M3U_START_MARKER        "#EXTM3U"
 #define M3U_INFO_MARKER         "#EXTINF"
 #define TVG_INFO_ID_MARKER      "tvg-id="
@@ -52,6 +55,7 @@
 
 using namespace ADDON;
 using namespace rapidxml;
+using namespace iptvsimple::utilities;
 
 template<class Ch>
 inline bool GetNodeValue(const xml_node<Ch> * pRootNode, const char* strTag, std::string& strStringValue)
@@ -481,11 +485,88 @@ bool PVRIptvData::LoadPlayList(void)
                 "Found URL: '%s' (current channel name: '%s')",
                 strLine.c_str(), tmpChannel.strChannelName.c_str());
 
+      // ================= PHP 302-REDIRECT HANDLER =================
+      std::string finalStreamUrl = strLine;
+      
+      // Check if URL is dynamic (PHP/API endpoint)
+      if (WebUtils::IsDynamicUrl(strLine))
+      {
+        XBMC->Log(LOG_INFO, "[PHP-Handler] Dynamic URL detected for '%s', fetching x-vip headers...", 
+                  tmpChannel.strChannelName.c_str());
+        
+        // Fetch PHP response with x-vip-clearkey, x-vip-addheader, and Location
+        PhpDynamicData phpData = WebUtils::FetchDynamicDataAndResolveUrl(strLine, tmpChannel.properties);
+        
+        // Use final URL from Location header
+        if (phpData.hasRedirect)
+        {
+          finalStreamUrl = phpData.finalUrl;
+          XBMC->Log(LOG_INFO, "[PHP-Handler] Using final MPD URL: %s", finalStreamUrl.substr(0, 60).c_str());
+        }
+        
+        // Process DRM keys from x-vip-clearkey
+        if (phpData.hasKeys)
+        {
+          XBMC->Log(LOG_INFO, "[PHP-Handler] %d clearkey(s) extracted from x-vip-clearkey", (int)phpData.keys.size());
+          
+          // Check if M3U already has keys (prefer PHP keys)
+          auto existingLicenseKey = tmpChannel.properties.find("inputstream.adaptive.license_key");
+          if (existingLicenseKey != tmpChannel.properties.end())
+          {
+            XBMC->Log(LOG_INFO, "[PHP-Handler] Overriding existing M3U keys with PHP x-vip-clearkey keys");
+          }
+          
+          // Generate inputstream.adaptive clearkey JSON
+          std::string clearkeyJson = WebUtils::GenerateClearkeyJson(phpData.keys);
+          tmpChannel.properties["inputstream.adaptive.license_type"] = "clearkey";
+          tmpChannel.properties["inputstream.adaptive.license_key"] = clearkeyJson;
+          
+          XBMC->Log(LOG_DEBUG, "[PHP-Handler] Clearkey JSON: %s", clearkeyJson.c_str());
+        }
+        
+        // Process dynamic headers from x-vip-addheader
+        if (phpData.hasHeaders)
+        {
+          XBMC->Log(LOG_INFO, "[PHP-Handler] %d dynamic header(s) extracted from x-vip-addheader", (int)phpData.headers.size());
+          
+          // Build combined headers string (merge with existing)
+          std::string existingHeaders = "";
+          auto existingStreamHeaders = tmpChannel.properties.find("inputstream.adaptive.stream_headers");
+          if (existingStreamHeaders != tmpChannel.properties.end())
+          {
+            existingHeaders = existingStreamHeaders->second;
+          }
+          
+          // Merge PHP headers (PHP headers take priority)
+          std::ostringstream combinedHeaders;
+          
+          // First add existing KODIPROP headers
+          if (!existingHeaders.empty())
+          {
+            combinedHeaders << existingHeaders;
+          }
+          
+          // Then add PHP dynamic headers
+          for (const auto& header : phpData.headers)
+          {
+            if (combinedHeaders.tellp() > 0)
+              combinedHeaders << "&";
+            combinedHeaders << header.first << "=" << header.second;
+            
+            XBMC->Log(LOG_DEBUG, "[PHP-Handler] Adding dynamic header: %s = %s", 
+                      header.first.c_str(), header.second.c_str());
+          }
+          
+          tmpChannel.properties["inputstream.adaptive.stream_headers"] = combinedHeaders.str();
+        }
+      }
+      // ============================================================
+
       if (bIsRealTime)
         tmpChannel.properties.insert({PVR_STREAM_PROPERTY_ISREALTIMESTREAM, "true"});
 
       PVRIptvChannel channel;
-      channel.iUniqueId         = GetChannelId(tmpChannel.strChannelName.c_str(), strLine.c_str());
+      channel.iUniqueId         = GetChannelId(tmpChannel.strChannelName.c_str(), finalStreamUrl.c_str());
       channel.iChannelNumber    = iChannelNum;
       channel.strTvgId          = tmpChannel.strTvgId;
       channel.strChannelName    = tmpChannel.strChannelName;
@@ -494,7 +575,7 @@ bool PVRIptvData::LoadPlayList(void)
       channel.iTvgShift         = tmpChannel.iTvgShift;
       channel.bRadio            = tmpChannel.bRadio;
       channel.properties        = tmpChannel.properties;
-      channel.strStreamURL      = strLine;
+      channel.strStreamURL      = finalStreamUrl;  // Use final URL (after 302 redirect)
       channel.iEncryptionSystem = 0;
 
       iChannelNum++;

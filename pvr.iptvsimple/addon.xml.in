@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <addon
-  id="pvr.iptvsimple"
-  version="21.11.0"
-  name="IPTV Simple Client"
-  provider-name="nightik and Ross Nicholson">
+  id="pvr.iptvsimple_new"
+  version="99.11.0"
+  name="IPTV Simple Client with dynamic key support"
+  provider-name="nightik and Ross Nicholson slightly modified by tojo2503">
   <requires>@ADDON_DEPENDS@
     <import addon="inputstream.ffmpegdirect" minversion="21.0.0"/>
     <import addon="inputstream.adaptive" minversion="21.0.0"/>

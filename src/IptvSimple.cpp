@@ -122,7 +122,6 @@ PVR_ERROR IptvSimple::GetBackendName(std::string& name)
 }
 PVR_ERROR IptvSimple::GetBackendVersion(std::string& version)
 {
-  // Some linux platform require the full string initialisation here to compile. No idea why.
   version = std::string(STR(IPTV_VERSION));
   return PVR_ERROR_NO_ERROR;
 }
@@ -136,7 +135,7 @@ void IptvSimple::Process()
 {
   unsigned int refreshTimer = 0;
   time_t lastRefreshTimeSeconds = std::time(nullptr);
-  int lastRefreshHour = m_settings->GetM3URefreshHour(); //ignore if we start during same hour
+  int lastRefreshHour = m_settings->GetM3URefreshHour();
 
   while (m_running)
   {
@@ -170,7 +169,7 @@ void IptvSimple::Process()
 
       m_settings->ReloadAddonInstanceSettings();
       m_playlistLoader.ReloadPlayList();
-      m_epg.ReloadEPG(); // Reloading EPG also updates media
+      m_epg.ReloadEPG();
 
       m_reloadChannelsGroupsAndEPG = false;
       refreshTimer = 0;
@@ -186,7 +185,6 @@ void IptvSimple::Process()
 PVR_ERROR IptvSimple::GetProvidersAmount(int& amount)
 {
   amount = m_providers.GetNumProviders();
-
   return PVR_ERROR_NO_ERROR;
 }
 
@@ -220,24 +218,35 @@ PVR_ERROR IptvSimple::GetChannelsAmount(int& amount)
 PVR_ERROR IptvSimple::GetChannels(bool radio, kodi::addon::PVRChannelsResultSet& results)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
-
   return m_channels.GetChannels(results, radio);
 }
 
-PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& channel, std::vector<kodi::addon::PVRStreamProperty>& properties)
+// ---------------------------------------------------------------------------
+// Helper: does a URL end with ".php" (case-insensitive)?
+// ---------------------------------------------------------------------------
+static bool IsPhpUrl(const std::string& url)
+{
+  // Strip query string for the extension check
+  std::string path = url;
+  const size_t qPos = path.find('?');
+  if (qPos != std::string::npos)
+    path = path.substr(0, qPos);
+
+  if (path.size() < 4) return false;
+  std::string ext = path.substr(path.size() - 4);
+  for (char& c : ext) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+  return ext == ".php";
+}
+
+PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& channel,
+                                                  std::vector<kodi::addon::PVRStreamProperty>& properties)
 {
   if (GetChannel(channel, m_currentChannel))
   {
     std::string streamURL = m_currentChannel.GetStreamURL();
 
-    // This reset will have no effect if we tried to play an epg tag as live
-    // i.e GetEPGTagStreamProperties will have been called prior to GetChannelStreamProperties
-    // So the state will not be reset as we need to carry the EPG entry details over to the timehifted live stream.
-    m_catchupController.ResetCatchupState(); // TODO: we need this currently until we have a way to know the stream stops.
+    m_catchupController.ResetCatchupState();
 
-    // We always call the catchup controller regardless so it can cleanup state
-    // whether or not it supports catchup in case there is any houskeeping to do
-    // This also allows us to check if this is a catchup stream or not when we try to get the URL.
     std::map<std::string, std::string> catchupProperties;
     m_catchupController.ProcessChannelForPlayback(m_currentChannel, catchupProperties);
 
@@ -247,10 +256,119 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
     else
       streamURL = m_catchupController.ProcessStreamUrl(m_currentChannel);
 
+    // -----------------------------------------------------------------------
+    // PHP-proxy resolution:
+    // If the stream URL points to a .php script we call it, follow the 302
+    // redirect to get the real MPD URL, and pick up any VIP override headers
+    // and clearkeys the server returns.
+    // -----------------------------------------------------------------------
+    if (IsPhpUrl(streamURL))
+    {
+      Logger::Log(LEVEL_INFO, "%s PHP stream URL detected, resolving: %s",
+                  __FUNCTION__, WebUtils::RedactUrl(streamURL).c_str());
+
+      const PhpRedirectInfo phpInfo = WebUtils::FetchPhpRedirectInfo(streamURL);
+
+      if (phpInfo.resolved)
+      {
+        // Replace the stream URL with the real MPD location
+        streamURL = phpInfo.finalUrl;
+
+        // ---- Merge x-vip-clearkey keys into inputstream.adaptive.drm_legacy ----
+        if (!phpInfo.clearKeys.empty())
+        {
+          // Build map from existing drm_legacy property (may already have keys
+          // from the M3U #KODIPROP line)
+          const std::string DRM_PROP = "inputstream.adaptive.drm_legacy";
+          std::string existingDrm = m_currentChannel.GetProperty(DRM_PROP);
+
+          // existingDrm is e.g.  "org.w3.clearkey|KID1:KEY1,KID2:KEY2"
+          // or empty.
+          std::string drmPrefix;
+          std::map<std::string, std::string> mergedKeys;
+
+          if (!existingDrm.empty())
+          {
+            // Split on '|' to separate the DRM system name from the key list
+            const size_t pipePos = existingDrm.find('|');
+            if (pipePos != std::string::npos)
+            {
+              drmPrefix = existingDrm.substr(0, pipePos + 1); // "org.w3.clearkey|"
+              const std::string keyList = existingDrm.substr(pipePos + 1);
+              // Parse existing KID:KEY pairs (comma-separated)
+              std::istringstream ks(keyList);
+              std::string kpair;
+              while (std::getline(ks, kpair, ','))
+              {
+                kodi::tools::StringUtils::Trim(kpair);
+                const size_t cp = kpair.find(':');
+                if (cp != std::string::npos)
+                  mergedKeys[kpair.substr(0, cp)] = kpair.substr(cp + 1);
+              }
+            }
+            else
+            {
+              // Unexpected format – keep as-is prefix, no existing keys parsed
+              drmPrefix = existingDrm;
+            }
+          }
+          else
+          {
+            drmPrefix = "org.w3.clearkey|";
+          }
+
+          // Merge/override with server-provided keys
+          for (const auto& kv : phpInfo.clearKeys)
+            mergedKeys[kv.first] = kv.second;
+
+          // Re-serialise
+          std::string newDrm = drmPrefix;
+          bool first = true;
+          for (const auto& kv : mergedKeys)
+          {
+            if (!first) newDrm += ',';
+            newDrm += kv.first + ':' + kv.second;
+            first = false;
+          }
+
+          // Update the property on the channel copy we are about to hand off
+          m_currentChannel.AddProperty(DRM_PROP, newDrm);
+          Logger::Log(LEVEL_INFO, "%s drm_legacy updated with %zu key(s) from PHP",
+                      __FUNCTION__, phpInfo.clearKeys.size());
+        }
+
+        // ---- Override stream headers with x-vip-addheader ----
+        // x-vip-addheader always wins over whatever was in the M3U.
+        if (!phpInfo.addHeaders.empty())
+        {
+          // inputstream.adaptive.stream_headers format: "Key=Value&Key2=Value2"
+          const std::string HDR_PROP = "inputstream.adaptive.stream_headers";
+          std::string hdrStr;
+          bool first = true;
+          for (const auto& hv : phpInfo.addHeaders)
+          {
+            if (!first) hdrStr += '&';
+            hdrStr += hv.first + '=' + hv.second;
+            first = false;
+          }
+          m_currentChannel.AddProperty(HDR_PROP, hdrStr);
+          Logger::Log(LEVEL_INFO, "%s stream_headers overridden with %zu header(s) from PHP",
+                      __FUNCTION__, phpInfo.addHeaders.size());
+        }
+      }
+      else
+      {
+        Logger::Log(LEVEL_WARNING, "%s PHP resolution failed, using original URL", __FUNCTION__);
+      }
+    }
+    // -----------------------------------------------------------------------
+
     streamURL = StreamUtils::WebStreamExtractor(streamURL, m_currentChannel);
     StreamUtils::SetAllStreamProperties(properties, m_currentChannel, streamURL, catchupUrl.empty(), catchupProperties, m_settings);
 
-    Logger::Log(LogLevel::LEVEL_INFO, "%s - Live %s URL: %s", __FUNCTION__, catchupUrl.empty() ? "Stream" : "Catchup", WebUtils::RedactUrl(streamURL).c_str());
+    Logger::Log(LogLevel::LEVEL_INFO, "%s - Live %s URL: %s", __FUNCTION__,
+                catchupUrl.empty() ? "Stream" : "Catchup",
+                WebUtils::RedactUrl(streamURL).c_str());
 
     return PVR_ERROR_NO_ERROR;
   }
@@ -261,14 +379,12 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
 bool IptvSimple::GetChannel(const kodi::addon::PVRChannel& channel, Channel& myChannel)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
-
   return m_channels.GetChannel(channel, myChannel);
 }
 
 bool IptvSimple::GetChannel(unsigned int uniqueChannelId, iptvsimple::data::Channel& myChannel)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
-
   return m_channels.GetChannel(uniqueChannelId, myChannel);
 }
 
@@ -286,14 +402,13 @@ PVR_ERROR IptvSimple::GetChannelGroupsAmount(int& amount)
 PVR_ERROR IptvSimple::GetChannelGroups(bool radio, kodi::addon::PVRChannelGroupsResultSet& results)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
-
   return m_channelGroups.GetChannelGroups(results, radio);
 }
 
-PVR_ERROR IptvSimple::GetChannelGroupMembers(const kodi::addon::PVRChannelGroup& group, kodi::addon::PVRChannelGroupMembersResultSet& results)
+PVR_ERROR IptvSimple::GetChannelGroupMembers(const kodi::addon::PVRChannelGroup& group,
+                                              kodi::addon::PVRChannelGroupMembersResultSet& results)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
-
   return m_channelGroups.GetChannelGroupMembers(group, results);
 }
 
@@ -301,38 +416,43 @@ PVR_ERROR IptvSimple::GetChannelGroupMembers(const kodi::addon::PVRChannelGroup&
  * EPG
  **************************************************************************/
 
-PVR_ERROR IptvSimple::GetEPGForChannel(int channelUid, time_t start, time_t end, kodi::addon::PVREPGTagsResultSet& results)
+PVR_ERROR IptvSimple::GetEPGForChannel(int channelUid, time_t start, time_t end,
+                                        kodi::addon::PVREPGTagsResultSet& results)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
-
   return m_epg.GetEPGForChannel(channelUid, start, end, results);
 }
 
-PVR_ERROR IptvSimple::GetEPGTagStreamProperties(const kodi::addon::PVREPGTag& tag, std::vector<kodi::addon::PVRStreamProperty>& properties)
+PVR_ERROR IptvSimple::GetEPGTagStreamProperties(const kodi::addon::PVREPGTag& tag,
+                                                 std::vector<kodi::addon::PVRStreamProperty>& properties)
 {
   Logger::Log(LEVEL_DEBUG, "%s - Tag startTime: %ld \tendTime: %ld", __FUNCTION__, tag.GetStartTime(), tag.GetEndTime());
 
   if (GetChannel(static_cast<int>(tag.GetUniqueChannelId()), m_currentChannel))
   {
-    Logger::Log(LEVEL_DEBUG, "%s - GetPlayEpgAsLive is %s", __FUNCTION__, m_settings->CatchupPlayEpgAsLive() ? "enabled" : "disabled");
+    Logger::Log(LEVEL_DEBUG, "%s - GetPlayEpgAsLive is %s", __FUNCTION__,
+                m_settings->CatchupPlayEpgAsLive() ? "enabled" : "disabled");
 
     std::map<std::string, std::string> catchupProperties;
-    if (m_settings->CatchupPlayEpgAsLive() && (m_currentChannel.CatchupSupportsTimeshifting() || m_currentChannel.GetCatchupMode() == CatchupMode::VOD))
+    if (m_settings->CatchupPlayEpgAsLive() &&
+        (m_currentChannel.CatchupSupportsTimeshifting() ||
+         m_currentChannel.GetCatchupMode() == CatchupMode::VOD))
     {
       m_catchupController.ProcessEPGTagForTimeshiftedPlayback(tag, m_currentChannel, catchupProperties);
     }
     else
     {
-      m_catchupController.ResetCatchupState(); // TODO: we need this currently until we have a way to know the stream stops.
+      m_catchupController.ResetCatchupState();
       m_catchupController.ProcessEPGTagForVideoPlayback(tag, m_currentChannel, catchupProperties);
     }
 
     const std::string catchupUrl = m_catchupController.GetCatchupUrl(m_currentChannel);
     if (!catchupUrl.empty())
     {
-      StreamUtils::SetAllStreamProperties(properties, m_currentChannel, catchupUrl, false, catchupProperties, m_settings);
-
-      Logger::Log(LEVEL_INFO, "%s - EPG Catchup URL: %s", __FUNCTION__, WebUtils::RedactUrl(catchupUrl).c_str());
+      StreamUtils::SetAllStreamProperties(properties, m_currentChannel, catchupUrl, false,
+                                          catchupProperties, m_settings);
+      Logger::Log(LEVEL_INFO, "%s - EPG Catchup URL: %s", __FUNCTION__,
+                  WebUtils::RedactUrl(catchupUrl).c_str());
       return PVR_ERROR_NO_ERROR;
     }
   }
@@ -348,18 +468,15 @@ PVR_ERROR IptvSimple::IsEPGTagPlayable(const kodi::addon::PVREPGTag& tag, bool& 
   const time_t now = std::time(nullptr);
   Channel channel{m_settings};
 
-  // Get the channel and set the current tag on it if found
   bIsPlayable = GetChannel(static_cast<int>(tag.GetUniqueChannelId()), channel) &&
                 m_settings->IsCatchupEnabled() && channel.IsCatchupSupported();
 
   if (channel.IgnoreCatchupDays())
   {
-    // If we ignore catchup days then any tag can be played but only if it has a catchup ID
     bool hasCatchupId = false;
     EpgEntry* epgEntry = m_catchupController.GetEPGEntry(channel, tag.GetStartTime());
     if (epgEntry)
       hasCatchupId = !epgEntry->GetCatchupId().empty();
-
     bIsPlayable = bIsPlayable && hasCatchupId;
   }
   else
@@ -396,7 +513,6 @@ PVR_ERROR IptvSimple::GetRecordingsAmount(bool deleted, int& amount)
     amount = 0;
   else
     amount = m_media.GetNumMedia();
-
   return PVR_ERROR_NO_ERROR;
 }
 
@@ -415,11 +531,11 @@ PVR_ERROR IptvSimple::GetRecordings(bool deleted, kodi::addon::PVRRecordingsResu
 
     Logger::Log(LEVEL_DEBUG, "%s - media available '%d'", __func__, media.size());
   }
-
   return PVR_ERROR_NO_ERROR;
 }
 
-PVR_ERROR IptvSimple::GetRecordingStreamProperties(const kodi::addon::PVRRecording& recording, std::vector<kodi::addon::PVRStreamProperty>& properties)
+PVR_ERROR IptvSimple::GetRecordingStreamProperties(const kodi::addon::PVRRecording& recording,
+                                                    std::vector<kodi::addon::PVRStreamProperty>& properties)
 {
   auto mediaEntry = m_media.GetMediaEntry(recording);
   std::string url = m_media.GetMediaEntryURL(recording);
@@ -428,7 +544,6 @@ PVR_ERROR IptvSimple::GetRecordingStreamProperties(const kodi::addon::PVRRecordi
   {
     url = StreamUtils::WebStreamExtractor(url, mediaEntry);
     StreamUtils::SetAllStreamProperties(properties, mediaEntry, url, m_settings);
-
     return PVR_ERROR_NO_ERROR;
   }
 
@@ -443,7 +558,6 @@ PVR_ERROR IptvSimple::GetSignalStatus(int channelUid, kodi::addon::PVRSignalStat
 {
   signalStatus.SetAdapterName("IPTV Simple Adapter 1");
   signalStatus.SetAdapterStatus("OK");
-
   return PVR_ERROR_NO_ERROR;
 }
 
@@ -451,12 +565,11 @@ PVR_ERROR IptvSimple::GetSignalStatus(int channelUid, kodi::addon::PVRSignalStat
  * InstanceSettings
  **************************************************************************/
 
-ADDON_STATUS IptvSimple::SetInstanceSetting(const std::string& settingName, const kodi::addon::CSettingValue& settingValue)
+ADDON_STATUS IptvSimple::SetInstanceSetting(const std::string& settingName,
+                                             const kodi::addon::CSettingValue& settingValue)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
 
-  // When a number of settings change set this on the first one so it can be picked up
-  // in the process call for a reload of channels, groups and EPG.
   if (!m_reloadChannelsGroupsAndEPG)
     m_reloadChannelsGroupsAndEPG = true;
 

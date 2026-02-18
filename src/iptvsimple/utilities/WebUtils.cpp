@@ -30,14 +30,11 @@ const std::string WebUtils::UrlEncode(const std::string& value)
 
   for (auto c : value)
   {
-    // Keep alphanumeric and other accepted characters intact
     if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
     {
       escaped << c;
       continue;
     }
-
-    // Any other characters are percent-encoded
     escaped << '%' << std::setw(2) << int(static_cast<unsigned char>(c));
   }
 
@@ -47,11 +44,12 @@ const std::string WebUtils::UrlEncode(const std::string& value)
 namespace
 {
 
-char from_hex(char ch) {
-    return isdigit(ch) ? ch - '0' : tolower(ch) - 'a' + 10;
+char from_hex(char ch)
+{
+  return isdigit(ch) ? ch - '0' : tolower(ch) - 'a' + 10;
 }
 
-} // unamed namespace
+} // unnamed namespace
 
 const std::string WebUtils::UrlDecode(const std::string& value)
 {
@@ -87,7 +85,6 @@ const std::string WebUtils::UrlDecode(const std::string& value)
 
 bool WebUtils::IsEncoded(const std::string& value)
 {
-  // Note this is not perfect as '+' symbols will mess this up, they should in general be avoided in preference of '%20'
   return UrlDecode(value) != value;
 }
 
@@ -134,20 +131,16 @@ std::string WebUtils::RedactUrl(const std::string& url)
   {
     std::string protocol = url.substr(0, url.find_first_of(":"));
     std::string fullPrefix = url.substr(url.find_first_of("@") + 1);
-
     redactedUrl = protocol + "://USERNAME:PASSWORD@" + fullPrefix;
   }
-
   return redactedUrl;
 }
 
 bool WebUtils::Check(const std::string& strURL, int connectionTimeoutSecs, bool isLocalPath)
 {
-  // For local paths we only need to check existence of the file
   if ((isLocalPath || IsSpecialUrl(strURL)) && FileUtils::FileExists(strURL))
     return true;
 
-  //Otherwise it's remote
   kodi::vfs::CFile fileHandle;
   if (!fileHandle.CURLCreate(strURL))
   {
@@ -173,8 +166,8 @@ std::map<std::string, std::string> WebUtils::ConvertStringToHeaders(const std::s
   std::istringstream stream(input);
   std::string item;
 
-  const char delimiter = '&'; // Default delimiter
-  const char keyValueSeparator = ':'; // Default key-value separator
+  const char delimiter = '&';
+  const char keyValueSeparator = ':';
 
   while (std::getline(stream, item, delimiter))
   {
@@ -188,4 +181,183 @@ std::map<std::string, std::string> WebUtils::ConvertStringToHeaders(const std::s
   }
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// PHP-proxy resolver
+// ---------------------------------------------------------------------------
+
+std::string WebUtils::Base64UrlToHex(const std::string& input)
+{
+  // Convert Base64url to standard Base64
+  std::string b64 = input;
+  for (char& c : b64)
+  {
+    if (c == '-') c = '+';
+    else if (c == '_') c = '/';
+  }
+  // Add padding
+  while (b64.size() % 4 != 0)
+    b64 += '=';
+
+  // Decode Base64 -> raw bytes -> hex string
+  // We implement a minimal decoder here to avoid extra dependencies.
+  static const std::string base64Chars =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+  std::string hexOut;
+  int val = 0, valb = -8;
+  for (unsigned char c : b64)
+  {
+    if (c == '=') break;
+    size_t pos = base64Chars.find(c);
+    if (pos == std::string::npos) continue;
+    val = (val << 6) + static_cast<int>(pos);
+    valb += 6;
+    if (valb >= 0)
+    {
+      unsigned char byte = static_cast<unsigned char>((val >> valb) & 0xFF);
+      char buf[3];
+      snprintf(buf, sizeof(buf), "%02x", byte);
+      hexOut += buf;
+      valb -= 8;
+    }
+  }
+  return hexOut;
+}
+
+std::map<std::string, std::string> WebUtils::ParseClearKeyHeader(const std::string& headerValue)
+{
+  // Format: KID1:KEY1;KID2:KEY2  (hex or Base64url)
+  std::map<std::string, std::string> keys;
+
+  std::istringstream stream(headerValue);
+  std::string pair;
+  while (std::getline(stream, pair, ';'))
+  {
+    StringUtils::Trim(pair);
+    if (pair.empty()) continue;
+
+    size_t colonPos = pair.find(':');
+    if (colonPos == std::string::npos) continue;
+
+    std::string kid = pair.substr(0, colonPos);
+    std::string key = pair.substr(colonPos + 1);
+    StringUtils::Trim(kid);
+    StringUtils::Trim(key);
+    if (kid.empty() || key.empty()) continue;
+
+    // Normalise KID to hex
+    std::string kidHex;
+    if (kid.length() == 32 && kid.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos)
+      kidHex = StringUtils::ToLower(kid);
+    else if (kid.length() == 36 && kid[8] == '-') // UUID
+    {
+      kidHex = kid;
+      kidHex.erase(std::remove(kidHex.begin(), kidHex.end(), '-'), kidHex.end());
+      kidHex = StringUtils::ToLower(kidHex);
+    }
+    else
+      kidHex = Base64UrlToHex(kid);
+
+    // Normalise KEY to hex
+    std::string keyHex;
+    if (key.length() == 32 && key.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos)
+      keyHex = StringUtils::ToLower(key);
+    else
+      keyHex = Base64UrlToHex(key);
+
+    if (!kidHex.empty() && !keyHex.empty())
+      keys[kidHex] = keyHex;
+    else
+      Logger::Log(LEVEL_WARNING, "%s Could not parse clearkey pair: %s", __func__, pair.c_str());
+  }
+  return keys;
+}
+
+std::map<std::string, std::string> WebUtils::ParseAddHeader(const std::string& headerValue)
+{
+  // Format: Name=Value,Name2=Value2  (comma-separated key=value pairs)
+  std::map<std::string, std::string> headers;
+
+  std::istringstream stream(headerValue);
+  std::string item;
+  while (std::getline(stream, item, ','))
+  {
+    StringUtils::Trim(item);
+    if (item.empty()) continue;
+    size_t eqPos = item.find('=');
+    if (eqPos == std::string::npos) continue;
+    std::string name  = item.substr(0, eqPos);
+    std::string value = item.substr(eqPos + 1);
+    StringUtils::Trim(name);
+    StringUtils::Trim(value);
+    if (!name.empty() && !value.empty())
+      headers[name] = value;
+  }
+  return headers;
+}
+
+PhpRedirectInfo WebUtils::FetchPhpRedirectInfo(const std::string& phpUrl)
+{
+  PhpRedirectInfo info;
+  info.finalUrl = phpUrl; // fallback: use original URL unchanged
+
+  if (!IsHttpUrl(phpUrl))
+    return info;
+
+  // ------------------------------------------------------------------
+  // Pass 1: disable redirect following so we can read the 302 headers
+  // directly (Location, x-vip-clearkey, x-vip-addheader).
+  // ------------------------------------------------------------------
+  kodi::vfs::CFile curlFile;
+  if (!curlFile.CURLCreate(phpUrl))
+  {
+    Logger::Log(LEVEL_ERROR, "%s Failed to create CURL handle for %s", __func__, RedactUrl(phpUrl).c_str());
+    return info;
+  }
+
+  // Do NOT follow the redirect – we want the 302 response headers.
+  curlFile.CURLAddOption(ADDON_CURL_OPTION_PROTOCOL, "redirect-limit", "0");
+  curlFile.CURLAddOption(ADDON_CURL_OPTION_PROTOCOL, "connection-timeout", "10");
+  // Ask for the response headers to be accessible via GetPropertyValue.
+  curlFile.CURLAddOption(ADDON_CURL_OPTION_PROTOCOL, "seekable", "0");
+
+  if (!curlFile.CURLOpen(ADDON_READ_NO_CACHE))
+  {
+    // CURLOpen returns false for non-200 responses too (e.g. 302).
+    // That is expected – we still get access to the response headers.
+    Logger::Log(LEVEL_DEBUG, "%s PHP returned non-200 (expected for 302): %s", __func__, RedactUrl(phpUrl).c_str());
+  }
+
+  // Read Location header (302 redirect target = the real MPD URL)
+  const std::string location = curlFile.GetPropertyValue(ADDON_FILE_PROPERTY_RESPONSE_HEADER, "location");
+  if (!location.empty())
+  {
+    info.finalUrl = location;
+    info.resolved = true;
+    Logger::Log(LEVEL_INFO, "%s PHP 302 -> MPD URL: %s", __func__, RedactUrl(location).c_str());
+  }
+  else
+  {
+    Logger::Log(LEVEL_WARNING, "%s No Location header in PHP response, using original URL", __func__);
+  }
+
+  // Read x-vip-clearkey
+  const std::string clearKeyHdr = curlFile.GetPropertyValue(ADDON_FILE_PROPERTY_RESPONSE_HEADER, "x-vip-clearkey");
+  if (!clearKeyHdr.empty())
+  {
+    info.clearKeys = ParseClearKeyHeader(clearKeyHdr);
+    Logger::Log(LEVEL_INFO, "%s x-vip-clearkey: %zu key(s) parsed", __func__, info.clearKeys.size());
+  }
+
+  // Read x-vip-addheader
+  const std::string addHdr = curlFile.GetPropertyValue(ADDON_FILE_PROPERTY_RESPONSE_HEADER, "x-vip-addheader");
+  if (!addHdr.empty())
+  {
+    info.addHeaders = ParseAddHeader(addHdr);
+    Logger::Log(LEVEL_INFO, "%s x-vip-addheader: %zu header(s) parsed", __func__, info.addHeaders.size());
+  }
+
+  return info;
 }

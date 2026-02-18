@@ -417,13 +417,24 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
           }
         }
 
-        // 5) Raise the ISA bandwidth ceiling to 100 Mbit/s so the adaptive
-        //    chooser favours the highest available representation from the
-        //    very first segment and avoids mid-playback quality switches.
-        //    (ISA 22 has no "start at max" property; a high ceiling is the
-        //    best available approximation.)
-        //    Unit: bits/second as uint32.
+        // 5) Force ISA to stay at 1080p from the very first segment by
+        //    setting both a high ceiling and a floor above the 720p track.
+        //
+        //    Root cause (observed in debug log):
+        //      - ISA initial bandwidth estimate ~6.5 Mbit/s
+        //      - 720p repr = 4800000 bps  -> selected at start
+        //      - 1080p repr = 7800000 bps -> switched to after ~1 s
+        //    The quality switch delivers a new SPS/PPS mid-stream; the
+        //    FFmpeg multi-threaded H.264 decoder loses its state and
+        //    produces a cascade of "h264 non-existing PPS" / "no frame!"
+        //    errors until playback breaks.
+        //
+        //    Fix: chooser_bandwidth_min = 8000000 bps (just above 720p)
+        //    ensures only the 1080p representation is ever eligible.
+        //    chooser_bandwidth_max = 100000000 bps (100 Mbit/s) keeps the
+        //    ceiling effectively unlimited.
         m_currentChannel.AddProperty("inputstream.adaptive.chooser_bandwidth_max", "100000000");
+        m_currentChannel.AddProperty("inputstream.adaptive.chooser_bandwidth_min", "8000000");
 
         Logger::Log(LEVEL_INFO, "%s PHP resolution complete -> final MPD: %s",
                     __FUNCTION__, WebUtils::RedactUrl(streamURL).c_str());

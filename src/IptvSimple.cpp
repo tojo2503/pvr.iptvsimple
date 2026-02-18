@@ -12,6 +12,7 @@
 #include "iptvsimple/utilities/TimeUtils.h"
 #include "iptvsimple/utilities/WebUtils.h"
 
+#include <algorithm>
 #include <ctime>
 #include <chrono>
 #include <sstream>
@@ -350,6 +351,12 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
     // -----------------------------------------------------------------------
     // PHP-proxy resolution
     // -----------------------------------------------------------------------
+    // Track whether we set inputstream.adaptive.drm from PHP clearkeys so we
+    // can post-process the properties vector and strip conflicting legacy DRM
+    // properties. ISA 22 throws WRONG DRM CONFIGURATION if drm + drm_legacy
+    // (or drm + license_type) are both present, even if one is empty.
+    bool phpDrmSet = false;
+
     if (IsPhpUrl(streamURL))
     {
       Logger::Log(LEVEL_INFO, "%s PHP stream URL detected, resolving: %s",
@@ -366,8 +373,8 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
         streamURL = TrimAfterMpd(streamURL);
 
         // 3) ClearKey DRM via inputstream.adaptive.drm JSON format (ISA 22).
-        //    PHP keys are always fresh; M3U drm_legacy is ignored entirely
-        //    when PHP delivers keys.
+        //    PHP keys are always fresh; M3U legacy DRM properties will be
+        //    stripped from the final properties vector after SetAllStreamProperties.
         if (!phpInfo.clearKeys.empty())
         {
           const std::string drmValue = BuildClearKeyDrmProperty(phpInfo.clearKeys);
@@ -376,9 +383,7 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
                       __FUNCTION__, drmValue.c_str());
 
           m_currentChannel.AddProperty("inputstream.adaptive.drm", drmValue);
-
-          // Remove stale drm_legacy from M3U if present - avoids conflicts
-          m_currentChannel.AddProperty("inputstream.adaptive.drm_legacy", "");
+          phpDrmSet = true;
         }
 
         // 4) Merge stream headers (M3U base + PHP overlay, PHP wins)
@@ -417,6 +422,30 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
 
     streamURL = StreamUtils::WebStreamExtractor(streamURL, m_currentChannel);
     StreamUtils::SetAllStreamProperties(properties, m_currentChannel, streamURL, catchupUrl.empty(), catchupProperties, m_settings);
+
+    // -----------------------------------------------------------------------
+    // Post-process: if PHP resolver set inputstream.adaptive.drm, remove any
+    // conflicting legacy DRM properties from the vector.
+    // ISA 22 rejects a mix of drm + drm_legacy / license_type / license_key
+    // even when the legacy property has an empty value.
+    // -----------------------------------------------------------------------
+    if (phpDrmSet)
+    {
+      properties.erase(
+        std::remove_if(properties.begin(), properties.end(),
+          [](const kodi::addon::PVRStreamProperty& p)
+          {
+            const std::string& n = p.GetName();
+            return n == "inputstream.adaptive.drm_legacy" ||
+                   n == "inputstream.adaptive.license_type" ||
+                   n == "inputstream.adaptive.license_key";
+          }),
+        properties.end());
+
+      Logger::Log(LEVEL_DEBUG, "%s Stripped legacy DRM properties from stream property vector",
+                  __FUNCTION__);
+    }
+    // -----------------------------------------------------------------------
 
     Logger::Log(LogLevel::LEVEL_INFO, "%s - Live %s URL: %s", __FUNCTION__, catchupUrl.empty() ? "Stream" : "Catchup", WebUtils::RedactUrl(streamURL).c_str());
 

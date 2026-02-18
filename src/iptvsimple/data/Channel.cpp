@@ -124,7 +124,7 @@ bool IsSpecialOrResourceProtocol(const std::string& path)
   return StringUtils::StartsWith(path, "special://") || StringUtils::StartsWith(path, "resource://");
 }
 
-}
+} // unnamed namespace
 
 void Channel::SetIconPathFromTvgLogo(const std::string& tvgLogo, std::string& channelName)
 {
@@ -207,6 +207,29 @@ void Channel::SetStreamURL(const std::string& url)
 
     m_streamURL = "http://" + m_settings->GetUdpxyHost() + ":" + std::to_string(m_settings->GetUdpxyPort()) + typePath + url.substr(UDP_MULTICAST_PREFIX.length());
     Logger::Log(LEVEL_DEBUG, "%s - Transformed multicast stream URL to local relay url: %s", __FUNCTION__, m_streamURL.c_str());
+  }
+
+  // If #KODIPROP:inputstream.adaptive.* properties are present but no explicit
+  // inputstream property was set, automatically activate inputstream.adaptive.
+  // This is required for DRM streams (ClearKey, Widevine, etc.) defined via
+  // #KODIPROP:inputstream.adaptive.license_type and license_key in the M3U.
+  if (GetProperty(PVR_STREAM_PROPERTY_INPUTSTREAM).empty())
+  {
+    bool hasAdaptiveProps = false;
+    for (const auto& prop : m_properties)
+    {
+      if (StringUtils::StartsWith(prop.first, "inputstream.adaptive."))
+      {
+        hasAdaptiveProps = true;
+        break;
+      }
+    }
+    if (hasAdaptiveProps)
+    {
+      Logger::Log(LEVEL_DEBUG, "%s - Auto-setting inputstream.adaptive for channel '%s' due to inputstream.adaptive.* KODIPROP entries",
+                  __FUNCTION__, m_channelName.c_str());
+      AddProperty(PVR_STREAM_PROPERTY_INPUTSTREAM, "inputstream.adaptive");
+    }
   }
 
   if (!m_settings->GetDefaultInputstream().empty() && GetProperty(PVR_STREAM_PROPERTY_INPUTSTREAM).empty())

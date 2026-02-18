@@ -375,28 +375,46 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
           phpDrmSet = true;
         }
 
-        // 4) Merge stream headers (M3U base + PHP overlay, PHP wins)
-        if (!phpInfo.addHeaders.empty())
+        // 4) Merge stream headers (M3U base + PHP overlay, PHP wins) and
+        //    apply to BOTH stream_headers (segments) AND manifest_headers (MPD).
+        //    In ISA 22 these are separate properties:
+        //      inputstream.adaptive.manifest_headers -> manifest download
+        //      inputstream.adaptive.stream_headers   -> segment downloads
+        //    Without manifest_headers the MPD fetch has no User-Agent / auth tokens.
         {
-          const std::string HDR_PROP = "inputstream.adaptive.stream_headers";
-          std::map<std::string, std::string> mergedHdrs =
-              ParseStreamHeaders(m_currentChannel.GetProperty(HDR_PROP));
+          const std::string STREAM_HDR   = "inputstream.adaptive.stream_headers";
+          const std::string MANIFEST_HDR = "inputstream.adaptive.manifest_headers";
 
+          // Start from whatever the M3U set in stream_headers
+          std::map<std::string, std::string> mergedHdrs =
+              ParseStreamHeaders(m_currentChannel.GetProperty(STREAM_HDR));
+
+          // Overlay PHP-supplied headers (PHP wins on conflicts)
           for (const auto& hv : phpInfo.addHeaders)
             mergedHdrs[hv.first] = hv.second;
 
           const std::string finalHdrStr = SerialiseStreamHeaders(mergedHdrs);
-          m_currentChannel.AddProperty(HDR_PROP, finalHdrStr);
 
-          Logger::Log(LEVEL_INFO, "%s stream_headers after merge: %s",
-                      __FUNCTION__, finalHdrStr.c_str());
-        }
-        else
-        {
-          const std::string existingHdrs =
-              m_currentChannel.GetProperty("inputstream.adaptive.stream_headers");
-          Logger::Log(LEVEL_INFO, "%s stream_headers (M3U only, no PHP addheader): %s",
-                      __FUNCTION__, existingHdrs.empty() ? "(none)" : existingHdrs.c_str());
+          // Update both properties so both manifest and segment requests
+          // carry the correct headers
+          if (!finalHdrStr.empty())
+          {
+            m_currentChannel.AddProperty(STREAM_HDR, finalHdrStr);
+            m_currentChannel.AddProperty(MANIFEST_HDR, finalHdrStr);
+          }
+
+          if (!phpInfo.addHeaders.empty())
+          {
+            Logger::Log(LEVEL_INFO,
+                        "%s stream+manifest headers after PHP merge: %s",
+                        __FUNCTION__, finalHdrStr.c_str());
+          }
+          else
+          {
+            Logger::Log(LEVEL_INFO,
+                        "%s stream+manifest headers (M3U only, no PHP addheader): %s",
+                        __FUNCTION__, finalHdrStr.empty() ? "(none)" : finalHdrStr.c_str());
+          }
         }
 
         Logger::Log(LEVEL_INFO, "%s PHP resolution complete -> final MPD: %s",

@@ -417,6 +417,14 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
           }
         }
 
+        // 5) Raise the ISA bandwidth ceiling to 100 Mbit/s so the adaptive
+        //    chooser favours the highest available representation from the
+        //    very first segment and avoids mid-playback quality switches.
+        //    (ISA 22 has no "start at max" property; a high ceiling is the
+        //    best available approximation.)
+        //    Unit: bits/second as uint32.
+        m_currentChannel.AddProperty("inputstream.adaptive.chooser_bandwidth_max", "100000000");
+
         Logger::Log(LEVEL_INFO, "%s PHP resolution complete -> final MPD: %s",
                     __FUNCTION__, WebUtils::RedactUrl(streamURL).c_str());
       }

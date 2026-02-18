@@ -10,6 +10,7 @@
 #include "FileUtils.h"
 #include "Logger.h"
 
+#include <algorithm>
 #include <cctype>
 #include <iomanip>
 #include <sstream>
@@ -20,6 +21,15 @@
 using namespace kodi::tools;
 using namespace iptvsimple;
 using namespace iptvsimple::utilities;
+
+// ---------------------------------------------------------------------------
+// Internal helper: lowercase a string in-place
+// ---------------------------------------------------------------------------
+static void ToLowerInPlace(std::string& s)
+{
+  std::transform(s.begin(), s.end(), s.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+}
 
 // http://stackoverflow.com/a/17708801
 const std::string WebUtils::UrlEncode(const std::string& value)
@@ -147,7 +157,7 @@ bool WebUtils::Check(const std::string& strURL, int connectionTimeoutSecs, bool 
   if ((isLocalPath || IsSpecialUrl(strURL)) && FileUtils::FileExists(strURL))
     return true;
 
-  //Otherwise it's remote
+  // Otherwise it's remote
   kodi::vfs::CFile fileHandle;
   if (!fileHandle.CURLCreate(strURL))
   {
@@ -188,4 +198,250 @@ std::map<std::string, std::string> WebUtils::ConvertStringToHeaders(const std::s
   }
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// HexToBase64Url: convert 32-char hex (16 bytes) -> Base64url without padding
+// ---------------------------------------------------------------------------
+std::string WebUtils::HexToBase64Url(const std::string& hex)
+{
+  // Decode hex -> bytes
+  std::vector<unsigned char> bytes;
+  bytes.reserve(hex.size() / 2);
+  for (size_t i = 0; i + 1 < hex.size(); i += 2)
+  {
+    unsigned int byte = 0;
+    std::istringstream ss(hex.substr(i, 2));
+    ss >> std::hex >> byte;
+    bytes.push_back(static_cast<unsigned char>(byte));
+  }
+
+  // Base64 encode
+  static const char* b64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string result;
+  result.reserve(((bytes.size() + 2) / 3) * 4);
+
+  for (size_t i = 0; i < bytes.size(); i += 3)
+  {
+    unsigned int b = (bytes[i] << 16);
+    if (i + 1 < bytes.size()) b |= (bytes[i + 1] << 8);
+    if (i + 2 < bytes.size()) b |= bytes[i + 2];
+
+    result += b64chars[(b >> 18) & 0x3F];
+    result += b64chars[(b >> 12) & 0x3F];
+    result += (i + 1 < bytes.size()) ? b64chars[(b >> 6) & 0x3F] : '=';
+    result += (i + 2 < bytes.size()) ? b64chars[b & 0x3F] : '=';
+  }
+
+  // Convert to Base64url: + -> -, / -> _, strip padding
+  for (char& c : result)
+  {
+    if (c == '+') c = '-';
+    else if (c == '/') c = '_';
+  }
+  // Remove padding
+  while (!result.empty() && result.back() == '=')
+    result.pop_back();
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// PHP-proxy resolver
+// ---------------------------------------------------------------------------
+
+std::string WebUtils::Base64UrlToHex(const std::string& input)
+{
+  std::string b64 = input;
+  for (char& c : b64)
+  {
+    if (c == '-') c = '+';
+    else if (c == '_') c = '/';
+  }
+  while (b64.size() % 4 != 0)
+    b64 += '=';
+
+  static const std::string base64Chars =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+  std::string hexOut;
+  int val = 0, valb = -8;
+  for (unsigned char c : b64)
+  {
+    if (c == '=') break;
+    size_t pos = base64Chars.find(c);
+    if (pos == std::string::npos) continue;
+    val = (val << 6) + static_cast<int>(pos);
+    valb += 6;
+    if (valb >= 0)
+    {
+      unsigned char byte = static_cast<unsigned char>((val >> valb) & 0xFF);
+      char buf[3];
+      snprintf(buf, sizeof(buf), "%02x", byte);
+      hexOut += buf;
+      valb -= 8;
+    }
+  }
+  return hexOut;
+}
+
+std::map<std::string, std::string> WebUtils::ParseClearKeyHeader(const std::string& headerValue)
+{
+  std::map<std::string, std::string> keys;
+
+  Logger::Log(LEVEL_INFO, "%s raw x-vip-clearkey header: [%s]", __func__, headerValue.c_str());
+
+  std::istringstream stream(headerValue);
+  std::string pair;
+  while (std::getline(stream, pair, ';'))
+  {
+    StringUtils::Trim(pair);
+    if (pair.empty()) continue;
+
+    size_t colonPos = pair.find(':');
+    if (colonPos == std::string::npos) continue;
+
+    std::string kid = pair.substr(0, colonPos);
+    std::string key = pair.substr(colonPos + 1);
+    StringUtils::Trim(kid);
+    StringUtils::Trim(key);
+    if (kid.empty() || key.empty()) continue;
+
+    Logger::Log(LEVEL_INFO, "%s raw KID=[%s] (len=%zu)  KEY=[%s] (len=%zu)",
+                __func__, kid.c_str(), kid.length(), key.c_str(), key.length());
+
+    std::string kidHex;
+    if (kid.length() == 32 &&
+        kid.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos)
+    {
+      kidHex = kid;
+      ToLowerInPlace(kidHex);
+      Logger::Log(LEVEL_INFO, "%s KID recognised as 32-char hex -> %s", __func__, kidHex.c_str());
+    }
+    else if (kid.length() == 36 && kid[8] == '-')
+    {
+      kidHex = kid;
+      kidHex.erase(std::remove(kidHex.begin(), kidHex.end(), '-'), kidHex.end());
+      ToLowerInPlace(kidHex);
+      Logger::Log(LEVEL_INFO, "%s KID recognised as UUID -> stripped hex: %s", __func__, kidHex.c_str());
+    }
+    else
+    {
+      kidHex = Base64UrlToHex(kid);
+      Logger::Log(LEVEL_INFO, "%s KID treated as Base64url -> hex: %s", __func__, kidHex.c_str());
+    }
+
+    std::string keyHex;
+    if (key.length() == 32 &&
+        key.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos)
+    {
+      keyHex = key;
+      ToLowerInPlace(keyHex);
+      Logger::Log(LEVEL_INFO, "%s KEY recognised as 32-char hex -> %s", __func__, keyHex.c_str());
+    }
+    else
+    {
+      keyHex = Base64UrlToHex(key);
+      Logger::Log(LEVEL_INFO, "%s KEY treated as Base64url -> hex: %s", __func__, keyHex.c_str());
+    }
+
+    if (!kidHex.empty() && !keyHex.empty())
+    {
+      Logger::Log(LEVEL_INFO, "%s accepted pair  KID=%s  KEY=%s", __func__, kidHex.c_str(), keyHex.c_str());
+      keys[kidHex] = keyHex;
+    }
+    else
+    {
+      Logger::Log(LEVEL_WARNING, "%s Could not parse clearkey pair: %s", __func__, pair.c_str());
+    }
+  }
+  return keys;
+}
+
+std::map<std::string, std::string> WebUtils::ParseAddHeader(const std::string& headerValue)
+{
+  std::map<std::string, std::string> headers;
+
+  std::istringstream stream(headerValue);
+  std::string item;
+  while (std::getline(stream, item, ','))
+  {
+    StringUtils::Trim(item);
+    if (item.empty()) continue;
+    size_t eqPos = item.find('=');
+    if (eqPos == std::string::npos) continue;
+    std::string name  = item.substr(0, eqPos);
+    std::string value = item.substr(eqPos + 1);
+    StringUtils::Trim(name);
+    StringUtils::Trim(value);
+    if (!name.empty() && !value.empty())
+      headers[name] = value;
+  }
+  return headers;
+}
+
+PhpRedirectInfo WebUtils::FetchPhpRedirectInfo(const std::string& phpUrl)
+{
+  PhpRedirectInfo info;
+  info.finalUrl = phpUrl;
+
+  if (!IsHttpUrl(phpUrl))
+    return info;
+
+  kodi::vfs::CFile curlFile;
+  if (!curlFile.CURLCreate(phpUrl))
+  {
+    Logger::Log(LEVEL_ERROR, "%s Failed to create CURL handle for %s",
+                __func__, RedactUrl(phpUrl).c_str());
+    return info;
+  }
+
+  curlFile.CURLAddOption(ADDON_CURL_OPTION_PROTOCOL, "redirect-limit", "0");
+  curlFile.CURLAddOption(ADDON_CURL_OPTION_PROTOCOL, "connection-timeout", "10");
+  curlFile.CURLAddOption(ADDON_CURL_OPTION_PROTOCOL, "seekable", "0");
+
+  if (!curlFile.CURLOpen(ADDON_READ_NO_CACHE))
+  {
+    Logger::Log(LEVEL_DEBUG, "%s PHP returned non-200 (expected for 302): %s",
+                __func__, RedactUrl(phpUrl).c_str());
+  }
+
+  const std::string location =
+      curlFile.GetPropertyValue(ADDON_FILE_PROPERTY_RESPONSE_HEADER, "location");
+  if (!location.empty())
+  {
+    info.finalUrl = location;
+    info.resolved = true;
+    Logger::Log(LEVEL_INFO, "%s PHP 302 -> MPD URL: %s",
+                __func__, RedactUrl(location).c_str());
+  }
+  else
+  {
+    Logger::Log(LEVEL_WARNING,
+                "%s No Location header in PHP response, using original URL", __func__);
+  }
+
+  const std::string clearKeyHdr =
+      curlFile.GetPropertyValue(ADDON_FILE_PROPERTY_RESPONSE_HEADER, "x-vip-clearkey");
+  if (!clearKeyHdr.empty())
+  {
+    info.clearKeys = ParseClearKeyHeader(clearKeyHdr);
+    Logger::Log(LEVEL_INFO, "%s x-vip-clearkey: %zu key(s) parsed",
+                __func__, info.clearKeys.size());
+  }
+  else
+  {
+    Logger::Log(LEVEL_INFO, "%s x-vip-clearkey header not present", __func__);
+  }
+
+  const std::string addHdr =
+      curlFile.GetPropertyValue(ADDON_FILE_PROPERTY_RESPONSE_HEADER, "x-vip-addheader");
+  if (!addHdr.empty())
+  {
+    info.addHeaders = ParseAddHeader(addHdr);
+    Logger::Log(LEVEL_INFO, "%s x-vip-addheader: %zu header(s) parsed",
+                __func__, info.addHeaders.size());
+  }
+
+  return info;
 }

@@ -230,31 +230,27 @@ static bool IsPhpUrl(const std::string& url)
 
 // ---------------------------------------------------------------------------
 // Helper: if the URL contains "dazn-token" cut everything after ".mpd"
-// so inputstream.adaptive receives a clean manifest URL.
 // ---------------------------------------------------------------------------
 static std::string TrimAfterMpd(const std::string& url)
 {
-  // Case-insensitive search for "dazn-token"
   std::string lower = url;
   std::transform(lower.begin(), lower.end(), lower.begin(),
                  [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
 
   if (lower.find("dazn-token") == std::string::npos)
-    return url; // not a DAZN URL, nothing to do
+    return url;
 
   const size_t mpdPos = lower.find(".mpd");
   if (mpdPos == std::string::npos)
-    return url; // no .mpd found, leave unchanged
+    return url;
 
-  const std::string trimmed = url.substr(0, mpdPos + 4); // keep ".mpd"
+  const std::string trimmed = url.substr(0, mpdPos + 4);
   Logger::Log(LEVEL_INFO, "TrimAfterMpd: trimmed DAZN token from URL -> %s", trimmed.c_str());
   return trimmed;
 }
 
 // ---------------------------------------------------------------------------
-// Helper: parse a stream_headers string ("Key=Value&Key2=Value2") into a map.
-// Values may be URL-encoded (from #KODIPROP via SetAllStreamProperties) or
-// plain (from x-vip-addheader).
+// Helper: parse "Key=Value&Key2=Value2" -> map
 // ---------------------------------------------------------------------------
 static std::map<std::string, std::string> ParseStreamHeaders(const std::string& hdrs)
 {
@@ -277,7 +273,7 @@ static std::map<std::string, std::string> ParseStreamHeaders(const std::string& 
 }
 
 // ---------------------------------------------------------------------------
-// Helper: serialise a header map back to "Key=Value&Key2=Value2"
+// Helper: serialise map -> "Key=Value&Key2=Value2"
 // ---------------------------------------------------------------------------
 static std::string SerialiseStreamHeaders(const std::map<std::string, std::string>& hdrs)
 {
@@ -323,7 +319,7 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
         // 1) Replace stream URL with resolved MPD location
         streamURL = phpInfo.finalUrl;
 
-        // 2) DAZN: cut off token garbage after .mpd
+        // 2) DAZN: strip token garbage after .mpd
         streamURL = TrimAfterMpd(streamURL);
 
         // 3) Merge clearkeys into drm_legacy
@@ -331,6 +327,10 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
         {
           const std::string DRM_PROP = "inputstream.adaptive.drm_legacy";
           std::string existingDrm = m_currentChannel.GetProperty(DRM_PROP);
+
+          Logger::Log(LEVEL_INFO, "%s existing drm_legacy from M3U: [%s]",
+                      __FUNCTION__, existingDrm.empty() ? "(empty)" : existingDrm.c_str());
+
           std::string drmPrefix;
           std::map<std::string, std::string> mergedKeys;
 
@@ -360,6 +360,9 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
             drmPrefix = "org.w3.clearkey|";
           }
 
+          Logger::Log(LEVEL_INFO, "%s drm prefix: [%s], existing key count: %zu",
+                      __FUNCTION__, drmPrefix.c_str(), mergedKeys.size());
+
           for (const auto& kv : phpInfo.clearKeys)
             mergedKeys[kv.first] = kv.second;
 
@@ -371,31 +374,27 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
             newDrm += kv.first + ':' + kv.second;
             first = false;
           }
+
+          // Log the COMPLETE drm_legacy value being handed to ISA
+          Logger::Log(LEVEL_INFO, "%s final drm_legacy -> [%s]",
+                      __FUNCTION__, newDrm.c_str());
+
           m_currentChannel.AddProperty(DRM_PROP, newDrm);
-          Logger::Log(LEVEL_INFO, "%s drm_legacy updated with %zu key(s) from PHP",
-                      __FUNCTION__, phpInfo.clearKeys.size());
         }
 
-        // 4) Merge stream headers:
-        //    - Start with whatever was in the M3U (#KODIPROP stream_headers)
-        //    - Overlay x-vip-addheader entries on top
-        //    - User-Agent from PHP wins over User-Agent from M3U
+        // 4) Merge stream headers (M3U base + PHP overlay)
         if (!phpInfo.addHeaders.empty())
         {
           const std::string HDR_PROP = "inputstream.adaptive.stream_headers";
-
-          // Parse existing M3U headers (may be empty)
           std::map<std::string, std::string> mergedHdrs =
               ParseStreamHeaders(m_currentChannel.GetProperty(HDR_PROP));
 
-          // Overlay PHP headers (including User-Agent override)
           for (const auto& hv : phpInfo.addHeaders)
             mergedHdrs[hv.first] = hv.second;
 
           const std::string finalHdrStr = SerialiseStreamHeaders(mergedHdrs);
           m_currentChannel.AddProperty(HDR_PROP, finalHdrStr);
 
-          // --- Logging ---
           const auto uaIt = mergedHdrs.find("User-Agent");
           Logger::Log(LEVEL_INFO, "%s stream_headers after merge: %s",
                       __FUNCTION__, finalHdrStr.c_str());
@@ -407,14 +406,13 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
         }
         else
         {
-          // No addheaders from PHP, but log whatever the M3U had
           const std::string existingHdrs =
               m_currentChannel.GetProperty("inputstream.adaptive.stream_headers");
-          Logger::Log(LEVEL_INFO, "%s stream_headers (M3U only): %s",
+          Logger::Log(LEVEL_INFO, "%s stream_headers (M3U only, no PHP addheader): %s",
                       __FUNCTION__, existingHdrs.empty() ? "(none)" : existingHdrs.c_str());
         }
 
-        Logger::Log(LEVEL_INFO, "%s PHP resolution complete -> MPD: %s",
+        Logger::Log(LEVEL_INFO, "%s PHP resolution complete -> final MPD: %s",
                     __FUNCTION__, WebUtils::RedactUrl(streamURL).c_str());
       }
       else

@@ -240,6 +240,9 @@ std::map<std::string, std::string> WebUtils::ParseClearKeyHeader(const std::stri
   // Format: KID1:KEY1;KID2:KEY2  (hex or Base64url)
   std::map<std::string, std::string> keys;
 
+  // Log the raw header so we can see exactly what the server sent
+  Logger::Log(LEVEL_INFO, "%s raw x-vip-clearkey header: [%s]", __func__, headerValue.c_str());
+
   std::istringstream stream(headerValue);
   std::string pair;
   while (std::getline(stream, pair, ';'))
@@ -256,23 +259,31 @@ std::map<std::string, std::string> WebUtils::ParseClearKeyHeader(const std::stri
     StringUtils::Trim(key);
     if (kid.empty() || key.empty()) continue;
 
+    Logger::Log(LEVEL_INFO, "%s raw KID=[%s] (len=%zu)  KEY=[%s] (len=%zu)",
+                __func__, kid.c_str(), kid.length(), key.c_str(), key.length());
+
     // Normalise KID to lowercase hex
     std::string kidHex;
     if (kid.length() == 32 &&
         kid.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos)
     {
+      // Already 32-char hex
       kidHex = kid;
       ToLowerInPlace(kidHex);
+      Logger::Log(LEVEL_INFO, "%s KID recognised as 32-char hex -> %s", __func__, kidHex.c_str());
     }
-    else if (kid.length() == 36 && kid[8] == '-') // UUID
+    else if (kid.length() == 36 && kid[8] == '-') // UUID form  xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
     {
       kidHex = kid;
       kidHex.erase(std::remove(kidHex.begin(), kidHex.end(), '-'), kidHex.end());
       ToLowerInPlace(kidHex);
+      Logger::Log(LEVEL_INFO, "%s KID recognised as UUID -> stripped hex: %s", __func__, kidHex.c_str());
     }
     else
     {
+      // Assume Base64url
       kidHex = Base64UrlToHex(kid);
+      Logger::Log(LEVEL_INFO, "%s KID treated as Base64url -> hex: %s", __func__, kidHex.c_str());
     }
 
     // Normalise KEY to lowercase hex
@@ -282,16 +293,23 @@ std::map<std::string, std::string> WebUtils::ParseClearKeyHeader(const std::stri
     {
       keyHex = key;
       ToLowerInPlace(keyHex);
+      Logger::Log(LEVEL_INFO, "%s KEY recognised as 32-char hex -> %s", __func__, keyHex.c_str());
     }
     else
     {
       keyHex = Base64UrlToHex(key);
+      Logger::Log(LEVEL_INFO, "%s KEY treated as Base64url -> hex: %s", __func__, keyHex.c_str());
     }
 
     if (!kidHex.empty() && !keyHex.empty())
+    {
+      Logger::Log(LEVEL_INFO, "%s accepted pair  KID=%s  KEY=%s", __func__, kidHex.c_str(), keyHex.c_str());
       keys[kidHex] = keyHex;
+    }
     else
+    {
       Logger::Log(LEVEL_WARNING, "%s Could not parse clearkey pair: %s", __func__, pair.c_str());
+    }
   }
   return keys;
 }
@@ -322,15 +340,11 @@ std::map<std::string, std::string> WebUtils::ParseAddHeader(const std::string& h
 PhpRedirectInfo WebUtils::FetchPhpRedirectInfo(const std::string& phpUrl)
 {
   PhpRedirectInfo info;
-  info.finalUrl = phpUrl; // fallback: use original URL unchanged
+  info.finalUrl = phpUrl;
 
   if (!IsHttpUrl(phpUrl))
     return info;
 
-  // ------------------------------------------------------------------
-  // Pass 1: disable redirect following so we can read the 302 headers
-  // directly (Location, x-vip-clearkey, x-vip-addheader).
-  // ------------------------------------------------------------------
   kodi::vfs::CFile curlFile;
   if (!curlFile.CURLCreate(phpUrl))
   {
@@ -339,19 +353,16 @@ PhpRedirectInfo WebUtils::FetchPhpRedirectInfo(const std::string& phpUrl)
     return info;
   }
 
-  // Do NOT follow the redirect – we want the 302 response headers.
   curlFile.CURLAddOption(ADDON_CURL_OPTION_PROTOCOL, "redirect-limit", "0");
   curlFile.CURLAddOption(ADDON_CURL_OPTION_PROTOCOL, "connection-timeout", "10");
   curlFile.CURLAddOption(ADDON_CURL_OPTION_PROTOCOL, "seekable", "0");
 
   if (!curlFile.CURLOpen(ADDON_READ_NO_CACHE))
   {
-    // CURLOpen returns false for non-200 (e.g. 302) – expected.
     Logger::Log(LEVEL_DEBUG, "%s PHP returned non-200 (expected for 302): %s",
                 __func__, RedactUrl(phpUrl).c_str());
   }
 
-  // Read Location header (302 redirect target = real MPD URL)
   const std::string location =
       curlFile.GetPropertyValue(ADDON_FILE_PROPERTY_RESPONSE_HEADER, "location");
   if (!location.empty())
@@ -367,7 +378,6 @@ PhpRedirectInfo WebUtils::FetchPhpRedirectInfo(const std::string& phpUrl)
                 "%s No Location header in PHP response, using original URL", __func__);
   }
 
-  // Read x-vip-clearkey
   const std::string clearKeyHdr =
       curlFile.GetPropertyValue(ADDON_FILE_PROPERTY_RESPONSE_HEADER, "x-vip-clearkey");
   if (!clearKeyHdr.empty())
@@ -376,8 +386,11 @@ PhpRedirectInfo WebUtils::FetchPhpRedirectInfo(const std::string& phpUrl)
     Logger::Log(LEVEL_INFO, "%s x-vip-clearkey: %zu key(s) parsed",
                 __func__, info.clearKeys.size());
   }
+  else
+  {
+    Logger::Log(LEVEL_INFO, "%s x-vip-clearkey header not present", __func__);
+  }
 
-  // Read x-vip-addheader
   const std::string addHdr =
       curlFile.GetPropertyValue(ADDON_FILE_PROPERTY_RESPONSE_HEADER, "x-vip-addheader");
   if (!addHdr.empty())

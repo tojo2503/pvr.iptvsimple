@@ -322,67 +322,36 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
         // 2) DAZN: strip token garbage after .mpd
         streamURL = TrimAfterMpd(streamURL);
 
-        // 3) Merge clearkeys into drm_legacy
+        // 3) ClearKey: PHP keys REPLACE M3U keys entirely.
+        //    Keys rotate on every stream open - M3U keys are always stale.
+        //    Build drm_legacy from scratch using only the fresh PHP keys.
         if (!phpInfo.clearKeys.empty())
         {
           const std::string DRM_PROP = "inputstream.adaptive.drm_legacy";
-          std::string existingDrm = m_currentChannel.GetProperty(DRM_PROP);
 
-          Logger::Log(LEVEL_INFO, "%s existing drm_legacy from M3U: [%s]",
-                      __FUNCTION__, existingDrm.empty() ? "(empty)" : existingDrm.c_str());
-
-          std::string drmPrefix;
-          std::map<std::string, std::string> mergedKeys;
-
+          // Log what was in the M3U (informational only, we discard it)
+          const std::string existingDrm = m_currentChannel.GetProperty(DRM_PROP);
           if (!existingDrm.empty())
-          {
-            const size_t pipePos = existingDrm.find('|');
-            if (pipePos != std::string::npos)
-            {
-              drmPrefix = existingDrm.substr(0, pipePos + 1);
-              std::istringstream ks(existingDrm.substr(pipePos + 1));
-              std::string kpair;
-              while (std::getline(ks, kpair, ','))
-              {
-                kodi::tools::StringUtils::Trim(kpair);
-                const size_t cp = kpair.find(':');
-                if (cp != std::string::npos)
-                  mergedKeys[kpair.substr(0, cp)] = kpair.substr(cp + 1);
-              }
-            }
-            else
-            {
-              drmPrefix = existingDrm;
-            }
-          }
-          else
-          {
-            drmPrefix = "org.w3.clearkey|";
-          }
+            Logger::Log(LEVEL_INFO, "%s discarding stale M3U drm_legacy: [%s]",
+                        __FUNCTION__, existingDrm.c_str());
 
-          Logger::Log(LEVEL_INFO, "%s drm prefix: [%s], existing key count: %zu",
-                      __FUNCTION__, drmPrefix.c_str(), mergedKeys.size());
-
-          for (const auto& kv : phpInfo.clearKeys)
-            mergedKeys[kv.first] = kv.second;
-
-          std::string newDrm = drmPrefix;
+          // Build fresh: org.w3.clearkey|kid1:key1,kid2:key2,...
+          std::string newDrm = "org.w3.clearkey|";
           bool first = true;
-          for (const auto& kv : mergedKeys)
+          for (const auto& kv : phpInfo.clearKeys)
           {
             if (!first) newDrm += ',';
             newDrm += kv.first + ':' + kv.second;
             first = false;
           }
 
-          // Log the COMPLETE drm_legacy value being handed to ISA
           Logger::Log(LEVEL_INFO, "%s final drm_legacy -> [%s]",
                       __FUNCTION__, newDrm.c_str());
 
           m_currentChannel.AddProperty(DRM_PROP, newDrm);
         }
 
-        // 4) Merge stream headers (M3U base + PHP overlay)
+        // 4) Merge stream headers (M3U base + PHP overlay, PHP wins)
         if (!phpInfo.addHeaders.empty())
         {
           const std::string HDR_PROP = "inputstream.adaptive.stream_headers";

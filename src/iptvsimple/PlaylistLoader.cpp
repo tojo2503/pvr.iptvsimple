@@ -64,7 +64,168 @@ bool GetOverrideRealTime(std::string& line)
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// ClearKey JWK -> drm_legacy converter
+// ---------------------------------------------------------------------------
+// inputstream.adaptive 21.x dropped support for license_type=clearkey +
+// license_key. The replacement is:
+//   inputstream.adaptive.drm_legacy=org.w3.clearkey|KID_HEX:KEY_HEX
+//
+// Many M3U providers still ship the old JWK JSON payload as the drm_legacy
+// value, e.g.:
+//   {"keys":[{"kty":"oct","kid":"Base64url...","k":"Base64url..."},...],
+//    "type":"temporary"}
+//
+// This function detects that case and converts it to the flat hex format.
+// Multiple keys are joined with commas:
+//   org.w3.clearkey|kid1hex:key1hex,kid2hex:key2hex,...
+//
+// Returns the converted string, or the original value unchanged when the
+// format is not recognised.
+
+static std::string Base64UrlToHex(const std::string& b64url)
+{
+  // Restore standard Base64 alphabet and padding
+  std::string b64 = b64url;
+  for (char& c : b64)
+  {
+    if (c == '-') c = '+';
+    else if (c == '_') c = '/';
+  }
+  // Add padding
+  while (b64.size() % 4 != 0)
+    b64 += '=';
+
+  // Decode Base64
+  static const std::string base64Chars =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+  std::vector<uint8_t> bytes;
+  bytes.reserve((b64.size() / 4) * 3);
+
+  uint32_t val = 0;
+  int valb = -8;
+  for (unsigned char c : b64)
+  {
+    if (c == '=') break;
+    size_t idx = base64Chars.find(c);
+    if (idx == std::string::npos) continue;
+    val = (val << 6) | static_cast<uint32_t>(idx);
+    valb += 6;
+    if (valb >= 0)
+    {
+      bytes.push_back(static_cast<uint8_t>((val >> valb) & 0xFF));
+      valb -= 8;
+    }
+  }
+
+  // Convert bytes to lowercase hex string
+  static const char hexChars[] = "0123456789abcdef";
+  std::string hex;
+  hex.reserve(bytes.size() * 2);
+  for (uint8_t b : bytes)
+  {
+    hex += hexChars[(b >> 4) & 0xF];
+    hex += hexChars[b & 0xF];
+  }
+  return hex;
 }
+
+// Extract the value of a simple JSON string field (no nesting required).
+// Returns empty string if the field is not found.
+static std::string JsonExtractStringField(const std::string& json, const std::string& fieldName)
+{
+  // Search for  "fieldName"  followed by  :  and then  "value"
+  std::string needle = "\"" + fieldName + "\"";
+  size_t pos = json.find(needle);
+  if (pos == std::string::npos) return "";
+  pos += needle.size();
+  // skip whitespace and colon
+  while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' || json[pos] == ':'))
+    ++pos;
+  if (pos >= json.size() || json[pos] != '"') return "";
+  ++pos; // skip opening quote
+  size_t end = json.find('"', pos);
+  if (end == std::string::npos) return "";
+  return json.substr(pos, end - pos);
+}
+
+static std::string ConvertClearKeyJwkToDrmLegacy(const std::string& propValue)
+{
+  // The value must start with "org.w3.clearkey|" followed by a JSON object
+  const std::string prefix = "org.w3.clearkey|";
+  if (!StringUtils::StartsWith(propValue, prefix)) return propValue;
+
+  const std::string payload = propValue.substr(prefix.size());
+  if (payload.empty() || payload[0] != '{') return propValue;
+
+  // Quick sanity check: must contain "keys" array
+  if (payload.find("\"keys\"") == std::string::npos) return propValue;
+
+  // Extract each key object between { } inside the "keys" array
+  // We find the array start and then iterate over objects
+  size_t keysPos = payload.find("\"keys\"");
+  if (keysPos == std::string::npos) return propValue;
+
+  size_t arrayStart = payload.find('[', keysPos);
+  if (arrayStart == std::string::npos) return propValue;
+
+  std::string result = prefix;
+  bool firstKey = true;
+
+  size_t searchFrom = arrayStart + 1;
+  while (true)
+  {
+    size_t objStart = payload.find('{', searchFrom);
+    if (objStart == std::string::npos) break;
+
+    // Find matching closing brace (single-level objects only – JWK keys
+    // never have nested objects)
+    size_t objEnd = payload.find('}', objStart);
+    if (objEnd == std::string::npos) break;
+
+    std::string keyObj = payload.substr(objStart, objEnd - objStart + 1);
+
+    std::string kid = JsonExtractStringField(keyObj, "kid");
+    std::string k   = JsonExtractStringField(keyObj, "k");
+
+    if (!kid.empty() && !k.empty())
+    {
+      std::string kidHex = Base64UrlToHex(kid);
+      std::string keyHex = Base64UrlToHex(k);
+
+      if (!kidHex.empty() && !keyHex.empty())
+      {
+        if (!firstKey) result += ',';
+        result += kidHex + ':' + keyHex;
+        firstKey = false;
+
+        Logger::Log(LEVEL_DEBUG,
+                    "ConvertClearKeyJwkToDrmLegacy - converted key: kid=%s key=%s",
+                    kidHex.c_str(), keyHex.c_str());
+      }
+    }
+
+    searchFrom = objEnd + 1;
+    // Stop when we leave the keys array
+    size_t arrayEnd = payload.find(']', arrayStart);
+    if (arrayEnd != std::string::npos && searchFrom > arrayEnd) break;
+  }
+
+  if (firstKey)
+  {
+    // Nothing was converted – return original value unchanged
+    Logger::Log(LEVEL_DEBUG,
+                "ConvertClearKeyJwkToDrmLegacy - no valid JWK keys found, passing value through unchanged");
+    return propValue;
+  }
+
+  Logger::Log(LEVEL_DEBUG,
+              "ConvertClearKeyJwkToDrmLegacy - result: %s", result.c_str());
+  return result;
+}
+
+} // unnamed namespace
 
 bool PlaylistLoader::LoadPlayList()
 {
@@ -569,7 +730,7 @@ void PlaylistLoader::ParseSinglePropertyIntoChannel(const std::string& line, Cha
   {
     std::string prop = value.substr(0, pos);
     StringUtils::ToLower(prop);
-    const std::string propValue = value.substr(pos + 1);
+    std::string propValue = value.substr(pos + 1);
 
     bool addProperty = true;
     if (markerName == EXTVLCOPT_DASH_MARKER)
@@ -587,6 +748,13 @@ void PlaylistLoader::ParseSinglePropertyIntoChannel(const std::string& line, Cha
     else if (markerName == KODIPROP_MARKER && (prop == "inputstreamaddon" || prop == "inputstreamclass"))
     {
       prop = PVR_STREAM_PROPERTY_INPUTSTREAM;
+    }
+    else if (markerName == KODIPROP_MARKER && prop == "inputstream.adaptive.drm_legacy")
+    {
+      // If the value after "org.w3.clearkey|" is a JWK JSON object, convert
+      // the Base64url-encoded kid/k fields to the hex format expected by
+      // inputstream.adaptive 21.x:  org.w3.clearkey|KID_HEX:KEY_HEX[,...]
+      propValue = ConvertClearKeyJwkToDrmLegacy(propValue);
     }
 
     if (addProperty)

@@ -23,8 +23,7 @@ using namespace iptvsimple;
 using namespace iptvsimple::utilities;
 
 // ---------------------------------------------------------------------------
-// Internal helper: lowercase a string in-place without relying on the return
-// value of StringUtils::ToLower() (which is void in some NDK builds).
+// Internal helper: lowercase a string in-place
 // ---------------------------------------------------------------------------
 static void ToLowerInPlace(std::string& s)
 {
@@ -195,19 +194,63 @@ std::map<std::string, std::string> WebUtils::ConvertStringToHeaders(const std::s
 }
 
 // ---------------------------------------------------------------------------
+// HexToBase64Url: convert 32-char hex (16 bytes) -> Base64url without padding
+// ---------------------------------------------------------------------------
+std::string WebUtils::HexToBase64Url(const std::string& hex)
+{
+  // Decode hex -> bytes
+  std::vector<unsigned char> bytes;
+  bytes.reserve(hex.size() / 2);
+  for (size_t i = 0; i + 1 < hex.size(); i += 2)
+  {
+    unsigned int byte = 0;
+    std::istringstream ss(hex.substr(i, 2));
+    ss >> std::hex >> byte;
+    bytes.push_back(static_cast<unsigned char>(byte));
+  }
+
+  // Base64 encode
+  static const char* b64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string result;
+  result.reserve(((bytes.size() + 2) / 3) * 4);
+
+  for (size_t i = 0; i < bytes.size(); i += 3)
+  {
+    unsigned int b = (bytes[i] << 16);
+    if (i + 1 < bytes.size()) b |= (bytes[i + 1] << 8);
+    if (i + 2 < bytes.size()) b |= bytes[i + 2];
+
+    result += b64chars[(b >> 18) & 0x3F];
+    result += b64chars[(b >> 12) & 0x3F];
+    result += (i + 1 < bytes.size()) ? b64chars[(b >> 6) & 0x3F] : '=';
+    result += (i + 2 < bytes.size()) ? b64chars[b & 0x3F] : '=';
+  }
+
+  // Convert to Base64url: + -> -, / -> _, strip padding
+  for (char& c : result)
+  {
+    if (c == '+') c = '-';
+    else if (c == '/') c = '_';
+  }
+  // Remove padding
+  while (!result.empty() && result.back() == '=')
+    result.pop_back();
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // PHP-proxy resolver
 // ---------------------------------------------------------------------------
 
 std::string WebUtils::Base64UrlToHex(const std::string& input)
 {
-  // Convert Base64url to standard Base64
   std::string b64 = input;
   for (char& c : b64)
   {
     if (c == '-') c = '+';
     else if (c == '_') c = '/';
   }
-  // Add padding
   while (b64.size() % 4 != 0)
     b64 += '=';
 
@@ -237,10 +280,8 @@ std::string WebUtils::Base64UrlToHex(const std::string& input)
 
 std::map<std::string, std::string> WebUtils::ParseClearKeyHeader(const std::string& headerValue)
 {
-  // Format: KID1:KEY1;KID2:KEY2  (hex or Base64url)
   std::map<std::string, std::string> keys;
 
-  // Log the raw header so we can see exactly what the server sent
   Logger::Log(LEVEL_INFO, "%s raw x-vip-clearkey header: [%s]", __func__, headerValue.c_str());
 
   std::istringstream stream(headerValue);
@@ -262,17 +303,15 @@ std::map<std::string, std::string> WebUtils::ParseClearKeyHeader(const std::stri
     Logger::Log(LEVEL_INFO, "%s raw KID=[%s] (len=%zu)  KEY=[%s] (len=%zu)",
                 __func__, kid.c_str(), kid.length(), key.c_str(), key.length());
 
-    // Normalise KID to lowercase hex
     std::string kidHex;
     if (kid.length() == 32 &&
         kid.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos)
     {
-      // Already 32-char hex
       kidHex = kid;
       ToLowerInPlace(kidHex);
       Logger::Log(LEVEL_INFO, "%s KID recognised as 32-char hex -> %s", __func__, kidHex.c_str());
     }
-    else if (kid.length() == 36 && kid[8] == '-') // UUID form  xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    else if (kid.length() == 36 && kid[8] == '-')
     {
       kidHex = kid;
       kidHex.erase(std::remove(kidHex.begin(), kidHex.end(), '-'), kidHex.end());
@@ -281,12 +320,10 @@ std::map<std::string, std::string> WebUtils::ParseClearKeyHeader(const std::stri
     }
     else
     {
-      // Assume Base64url
       kidHex = Base64UrlToHex(kid);
       Logger::Log(LEVEL_INFO, "%s KID treated as Base64url -> hex: %s", __func__, kidHex.c_str());
     }
 
-    // Normalise KEY to lowercase hex
     std::string keyHex;
     if (key.length() == 32 &&
         key.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos)
@@ -316,7 +353,6 @@ std::map<std::string, std::string> WebUtils::ParseClearKeyHeader(const std::stri
 
 std::map<std::string, std::string> WebUtils::ParseAddHeader(const std::string& headerValue)
 {
-  // Format: Name=Value,Name2=Value2  (comma-separated key=value pairs)
   std::map<std::string, std::string> headers;
 
   std::istringstream stream(headerValue);

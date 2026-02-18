@@ -286,6 +286,41 @@ static std::string SerialiseStreamHeaders(const std::map<std::string, std::strin
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Build inputstream.adaptive.drm JSON for ClearKey from hex KID/KEY pairs.
+//
+// ISA 21.3+ format (org.w3.clearkey):
+//   {"kids":["<base64url_kid1>","<base64url_kid2>"],
+//    "keys":[{"kty":"oct","kid":"<base64url_kid1>","k":"<base64url_key1>"},
+//            {"kty":"oct","kid":"<base64url_kid2>","k":"<base64url_key2>"}]}
+//
+// The property value passed to ISA is:
+//   org.w3.clearkey|<json>
+// ---------------------------------------------------------------------------
+static std::string BuildClearKeyDrmProperty(
+    const std::map<std::string, std::string>& hexKeyMap)
+{
+  // kids array
+  std::string kidsArray;
+  std::string keysArray;
+  bool first = true;
+  for (const auto& kv : hexKeyMap)
+  {
+    const std::string kidB64 = WebUtils::HexToBase64Url(kv.first);
+    const std::string keyB64 = WebUtils::HexToBase64Url(kv.second);
+
+    if (!first) { kidsArray += ','; keysArray += ','; }
+    kidsArray += '"' + kidB64 + '"';
+    keysArray += "{\"kty\":\"oct\",\"kid\":\"" + kidB64 + "\",\"k\":\"" + keyB64 + "\"}"; 
+    first = false;
+  }
+
+  const std::string json =
+      "{\"kids\":[" + kidsArray + "],\"keys\":[" + keysArray + "]}";
+
+  return "org.w3.clearkey|" + json;
+}
+
 PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& channel,
                                                   std::vector<kodi::addon::PVRStreamProperty>& properties)
 {
@@ -322,33 +357,20 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
         // 2) DAZN: strip token garbage after .mpd
         streamURL = TrimAfterMpd(streamURL);
 
-        // 3) ClearKey: PHP keys REPLACE M3U keys entirely.
-        //    Keys rotate on every stream open - M3U keys are always stale.
-        //    Build drm_legacy from scratch using only the fresh PHP keys.
+        // 3) ClearKey DRM via new inputstream.adaptive.drm JSON format
+        //    (ISA 21.3+). PHP keys are always fresh; M3U drm_legacy is
+        //    ignored entirely when PHP delivers keys.
         if (!phpInfo.clearKeys.empty())
         {
-          const std::string DRM_PROP = "inputstream.adaptive.drm_legacy";
+          const std::string drmValue = BuildClearKeyDrmProperty(phpInfo.clearKeys);
 
-          // Log what was in the M3U (informational only, we discard it)
-          const std::string existingDrm = m_currentChannel.GetProperty(DRM_PROP);
-          if (!existingDrm.empty())
-            Logger::Log(LEVEL_INFO, "%s discarding stale M3U drm_legacy: [%s]",
-                        __FUNCTION__, existingDrm.c_str());
+          Logger::Log(LEVEL_INFO, "%s setting inputstream.adaptive.drm -> [%s]",
+                      __FUNCTION__, drmValue.c_str());
 
-          // Build fresh: org.w3.clearkey|kid1:key1,kid2:key2,...
-          std::string newDrm = "org.w3.clearkey|";
-          bool first = true;
-          for (const auto& kv : phpInfo.clearKeys)
-          {
-            if (!first) newDrm += ',';
-            newDrm += kv.first + ':' + kv.second;
-            first = false;
-          }
+          m_currentChannel.AddProperty("inputstream.adaptive.drm", drmValue);
 
-          Logger::Log(LEVEL_INFO, "%s final drm_legacy -> [%s]",
-                      __FUNCTION__, newDrm.c_str());
-
-          m_currentChannel.AddProperty(DRM_PROP, newDrm);
+          // Remove stale drm_legacy from M3U if present - avoids conflicts
+          m_currentChannel.AddProperty("inputstream.adaptive.drm_legacy", "");
         }
 
         // 4) Merge stream headers (M3U base + PHP overlay, PHP wins)
@@ -364,14 +386,8 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
           const std::string finalHdrStr = SerialiseStreamHeaders(mergedHdrs);
           m_currentChannel.AddProperty(HDR_PROP, finalHdrStr);
 
-          const auto uaIt = mergedHdrs.find("User-Agent");
           Logger::Log(LEVEL_INFO, "%s stream_headers after merge: %s",
                       __FUNCTION__, finalHdrStr.c_str());
-          if (uaIt != mergedHdrs.end())
-            Logger::Log(LEVEL_INFO, "%s User-Agent -> %s",
-                        __FUNCTION__, uaIt->second.c_str());
-          else
-            Logger::Log(LEVEL_INFO, "%s User-Agent -> (none set)", __FUNCTION__);
         }
         else
         {

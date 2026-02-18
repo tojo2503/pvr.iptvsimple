@@ -50,20 +50,14 @@ namespace iptvsimple
       /**
        * Call a PHP URL (or any dynamic URL), follow the 302 redirect and
        * extract x-vip-clearkey / x-vip-addheader response headers.
-       *
-       * The function performs two CURL passes:
-       *   Pass 1  redirect-limit=0  -> reads Location + VIP headers from the
-       *                                302 response itself.
-       *   Pass 2  normal follow     -> finalUrl is the redirected MPD address
-       *                                (used only to confirm; we already have
-       *                                 it from Pass 1).
-       *
-       * x-vip-clearkey format (semicolon-separated):  KID1:KEY1;KID2:KEY2
-       *   Each KID/KEY may be hex (32 chars) or Base64url.
-       *
-       * x-vip-addheader format:  HeaderName=Value,HeaderName2=Value2
        */
       static PhpRedirectInfo FetchPhpRedirectInfo(const std::string& phpUrl);
+
+      /**
+       * Convert a 32-char lowercase hex string (16 bytes) to Base64url without padding.
+       * Used to build the inputstream.adaptive.drm JSON payload.
+       */
+      static std::string HexToBase64Url(const std::string& hex);
 
     private:
       static std::string Base64UrlToHex(const std::string& input);

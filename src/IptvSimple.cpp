@@ -294,35 +294,25 @@ static std::string SerialiseStreamHeaders(const std::map<std::string, std::strin
 // ---------------------------------------------------------------------------
 // Build inputstream.adaptive.drm JSON for ClearKey from hex KID/KEY pairs.
 //
-// ISA 22+ format (org.w3.clearkey):
-//   {"kids":["<base64url_kid1>","<base64url_kid2>"],
-//    "keys":[{"kty":"oct","kid":"<base64url_kid1>","k":"<base64url_key1>"},
-//            {"kty":"oct","kid":"<base64url_kid2>","k":"<base64url_key2>"}]}
+// ISA 22 inputstream.adaptive.drm format (plain JSON dict, NO pipe prefix):
+//   {"org.w3.clearkey":{"license":{"keyids":{"KID_HEX":"KEY_HEX",...}}}}
 //
-// The property value passed to ISA is:
-//   org.w3.clearkey|<json>
+// KID/Key values are in hex format - no Base64 conversion.
+// Ref: https://github.com/xbmc/inputstream.adaptive/wiki/Integration-DRM
 // ---------------------------------------------------------------------------
 static std::string BuildClearKeyDrmProperty(
     const std::map<std::string, std::string>& hexKeyMap)
 {
-  std::string kidsArray;
-  std::string keysArray;
+  std::string keyidsJson;
   bool first = true;
   for (const auto& kv : hexKeyMap)
   {
-    const std::string kidB64 = WebUtils::HexToBase64Url(kv.first);
-    const std::string keyB64 = WebUtils::HexToBase64Url(kv.second);
-
-    if (!first) { kidsArray += ','; keysArray += ','; }
-    kidsArray += '"' + kidB64 + '"';
-    keysArray += "{\"kty\":\"oct\",\"kid\":\"" + kidB64 + "\",\"k\":\"" + keyB64 + "\"}";
+    if (!first) keyidsJson += ',';
+    keyidsJson += '"' + kv.first + "\":\"" + kv.second + '"';
     first = false;
   }
 
-  const std::string json =
-      "{\"kids\":[" + kidsArray + "],\"keys\":[" + keysArray + "]}";
-
-  return "org.w3.clearkey|" + json;
+  return "{\"org.w3.clearkey\":{\"license\":{\"keyids\":{" + keyidsJson + "}}}}";
 }
 
 PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& channel, PVR_SOURCE source, std::vector<kodi::addon::PVRStreamProperty>& properties)
@@ -353,8 +343,7 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
     // -----------------------------------------------------------------------
     // Track whether we set inputstream.adaptive.drm from PHP clearkeys so we
     // can post-process the properties vector and strip conflicting legacy DRM
-    // properties. ISA 22 throws WRONG DRM CONFIGURATION if drm + drm_legacy
-    // (or drm + license_type) are both present, even if one is empty.
+    // properties. ISA 22 rejects mixed DRM config (drm + drm_legacy etc).
     bool phpDrmSet = false;
 
     if (IsPhpUrl(streamURL))
@@ -372,9 +361,9 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
         // 2) DAZN: strip token garbage after .mpd
         streamURL = TrimAfterMpd(streamURL);
 
-        // 3) ClearKey DRM via inputstream.adaptive.drm JSON format (ISA 22).
-        //    PHP keys are always fresh; M3U legacy DRM properties will be
-        //    stripped from the final properties vector after SetAllStreamProperties.
+        // 3) ClearKey DRM via inputstream.adaptive.drm (ISA 22 new format):
+        //    {"org.w3.clearkey":{"license":{"keyids":{"KID":"KEY",...}}}}
+        //    KID/Key in hex, no Base64. PHP keys are always fresh.
         if (!phpInfo.clearKeys.empty())
         {
           const std::string drmValue = BuildClearKeyDrmProperty(phpInfo.clearKeys);
@@ -425,7 +414,7 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
 
     // -----------------------------------------------------------------------
     // Post-process: if PHP resolver set inputstream.adaptive.drm, remove any
-    // conflicting legacy DRM properties from the vector.
+    // conflicting legacy DRM properties from the final vector.
     // ISA 22 rejects a mix of drm + drm_legacy / license_type / license_key
     // even when the legacy property has an empty value.
     // -----------------------------------------------------------------------

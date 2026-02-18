@@ -14,6 +14,7 @@
 
 #include <ctime>
 #include <chrono>
+#include <sstream>
 
 #include <kodi/tools/StringUtils.h>
 
@@ -216,6 +217,113 @@ PVR_ERROR IptvSimple::GetChannels(bool radio, kodi::addon::PVRChannelsResultSet&
   return m_channels.GetChannels(results, radio);
 }
 
+// ---------------------------------------------------------------------------
+// Helper: does a URL end with ".php" (case-insensitive, ignores query string)?
+// ---------------------------------------------------------------------------
+static bool IsPhpUrl(const std::string& url)
+{
+  std::string path = url;
+  const size_t qPos = path.find('?');
+  if (qPos != std::string::npos)
+    path = path.substr(0, qPos);
+  if (path.size() < 4) return false;
+  std::string ext = path.substr(path.size() - 4);
+  for (char& c : ext) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+  return ext == ".php";
+}
+
+// ---------------------------------------------------------------------------
+// Helper: if the URL contains "dazn-token" cut everything after ".mpd"
+// ---------------------------------------------------------------------------
+static std::string TrimAfterMpd(const std::string& url)
+{
+  std::string lower = url;
+  std::transform(lower.begin(), lower.end(), lower.begin(),
+                 [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+
+  if (lower.find("dazn-token") == std::string::npos)
+    return url;
+
+  const size_t mpdPos = lower.find(".mpd");
+  if (mpdPos == std::string::npos)
+    return url;
+
+  const std::string trimmed = url.substr(0, mpdPos + 4);
+  Logger::Log(LEVEL_INFO, "TrimAfterMpd: trimmed DAZN token from URL -> %s", trimmed.c_str());
+  return trimmed;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: parse "Key=Value&Key2=Value2" -> map
+// ---------------------------------------------------------------------------
+static std::map<std::string, std::string> ParseStreamHeaders(const std::string& hdrs)
+{
+  std::map<std::string, std::string> result;
+  if (hdrs.empty()) return result;
+  std::istringstream ss(hdrs);
+  std::string item;
+  while (std::getline(ss, item, '&'))
+  {
+    const size_t eq = item.find('=');
+    if (eq == std::string::npos) continue;
+    std::string key   = item.substr(0, eq);
+    std::string value = item.substr(eq + 1);
+    kodi::tools::StringUtils::Trim(key);
+    kodi::tools::StringUtils::Trim(value);
+    if (!key.empty())
+      result[key] = value;
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: serialise map -> "Key=Value&Key2=Value2"
+// ---------------------------------------------------------------------------
+static std::string SerialiseStreamHeaders(const std::map<std::string, std::string>& hdrs)
+{
+  std::string out;
+  for (const auto& kv : hdrs)
+  {
+    if (!out.empty()) out += '&';
+    out += kv.first + '=' + kv.second;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Build inputstream.adaptive.drm JSON for ClearKey from hex KID/KEY pairs.
+//
+// ISA 22+ format (org.w3.clearkey):
+//   {"kids":["<base64url_kid1>","<base64url_kid2>"],
+//    "keys":[{"kty":"oct","kid":"<base64url_kid1>","k":"<base64url_key1>"},
+//            {"kty":"oct","kid":"<base64url_kid2>","k":"<base64url_key2>"}]}
+//
+// The property value passed to ISA is:
+//   org.w3.clearkey|<json>
+// ---------------------------------------------------------------------------
+static std::string BuildClearKeyDrmProperty(
+    const std::map<std::string, std::string>& hexKeyMap)
+{
+  std::string kidsArray;
+  std::string keysArray;
+  bool first = true;
+  for (const auto& kv : hexKeyMap)
+  {
+    const std::string kidB64 = WebUtils::HexToBase64Url(kv.first);
+    const std::string keyB64 = WebUtils::HexToBase64Url(kv.second);
+
+    if (!first) { kidsArray += ','; keysArray += ','; }
+    kidsArray += '"' + kidB64 + '"';
+    keysArray += "{\"kty\":\"oct\",\"kid\":\"" + kidB64 + "\",\"k\":\"" + keyB64 + "\"}";
+    first = false;
+  }
+
+  const std::string json =
+      "{\"kids\":[" + kidsArray + "],\"keys\":[" + keysArray + "]}";
+
+  return "org.w3.clearkey|" + json;
+}
+
 PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& channel, PVR_SOURCE source, std::vector<kodi::addon::PVRStreamProperty>& properties)
 {
   if (GetChannel(channel, m_currentChannel))
@@ -238,6 +346,74 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
       streamURL = catchupUrl;
     else
       streamURL = m_catchupController.ProcessStreamUrl(m_currentChannel);
+
+    // -----------------------------------------------------------------------
+    // PHP-proxy resolution
+    // -----------------------------------------------------------------------
+    if (IsPhpUrl(streamURL))
+    {
+      Logger::Log(LEVEL_INFO, "%s PHP stream URL detected, resolving: %s",
+                  __FUNCTION__, WebUtils::RedactUrl(streamURL).c_str());
+
+      const PhpRedirectInfo phpInfo = WebUtils::FetchPhpRedirectInfo(streamURL);
+
+      if (phpInfo.resolved)
+      {
+        // 1) Replace stream URL with resolved MPD location
+        streamURL = phpInfo.finalUrl;
+
+        // 2) DAZN: strip token garbage after .mpd
+        streamURL = TrimAfterMpd(streamURL);
+
+        // 3) ClearKey DRM via inputstream.adaptive.drm JSON format (ISA 22).
+        //    PHP keys are always fresh; M3U drm_legacy is ignored entirely
+        //    when PHP delivers keys.
+        if (!phpInfo.clearKeys.empty())
+        {
+          const std::string drmValue = BuildClearKeyDrmProperty(phpInfo.clearKeys);
+
+          Logger::Log(LEVEL_INFO, "%s setting inputstream.adaptive.drm -> [%s]",
+                      __FUNCTION__, drmValue.c_str());
+
+          m_currentChannel.AddProperty("inputstream.adaptive.drm", drmValue);
+
+          // Remove stale drm_legacy from M3U if present - avoids conflicts
+          m_currentChannel.AddProperty("inputstream.adaptive.drm_legacy", "");
+        }
+
+        // 4) Merge stream headers (M3U base + PHP overlay, PHP wins)
+        if (!phpInfo.addHeaders.empty())
+        {
+          const std::string HDR_PROP = "inputstream.adaptive.stream_headers";
+          std::map<std::string, std::string> mergedHdrs =
+              ParseStreamHeaders(m_currentChannel.GetProperty(HDR_PROP));
+
+          for (const auto& hv : phpInfo.addHeaders)
+            mergedHdrs[hv.first] = hv.second;
+
+          const std::string finalHdrStr = SerialiseStreamHeaders(mergedHdrs);
+          m_currentChannel.AddProperty(HDR_PROP, finalHdrStr);
+
+          Logger::Log(LEVEL_INFO, "%s stream_headers after merge: %s",
+                      __FUNCTION__, finalHdrStr.c_str());
+        }
+        else
+        {
+          const std::string existingHdrs =
+              m_currentChannel.GetProperty("inputstream.adaptive.stream_headers");
+          Logger::Log(LEVEL_INFO, "%s stream_headers (M3U only, no PHP addheader): %s",
+                      __FUNCTION__, existingHdrs.empty() ? "(none)" : existingHdrs.c_str());
+        }
+
+        Logger::Log(LEVEL_INFO, "%s PHP resolution complete -> final MPD: %s",
+                    __FUNCTION__, WebUtils::RedactUrl(streamURL).c_str());
+      }
+      else
+      {
+        Logger::Log(LEVEL_WARNING, "%s PHP resolution failed, using original URL", __FUNCTION__);
+      }
+    }
+    // -----------------------------------------------------------------------
 
     streamURL = StreamUtils::WebStreamExtractor(streamURL, m_currentChannel);
     StreamUtils::SetAllStreamProperties(properties, m_currentChannel, streamURL, catchupUrl.empty(), catchupProperties, m_settings);

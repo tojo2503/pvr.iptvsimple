@@ -234,27 +234,6 @@ static bool IsPhpUrl(const std::string& url)
 }
 
 // ---------------------------------------------------------------------------
-// Helper: if the URL contains "dazn-token" cut everything after ".mpd"
-// ---------------------------------------------------------------------------
-static std::string TrimAfterMpd(const std::string& url)
-{
-  std::string lower = url;
-  std::transform(lower.begin(), lower.end(), lower.begin(),
-                 [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
-
-  if (lower.find("dazn-token") == std::string::npos)
-    return url;
-
-  const size_t mpdPos = lower.find(".mpd");
-  if (mpdPos == std::string::npos)
-    return url;
-
-  const std::string trimmed = url.substr(0, mpdPos + 4);
-  Logger::Log(LEVEL_INFO, "TrimAfterMpd: trimmed DAZN token from URL -> %s", trimmed.c_str());
-  return trimmed;
-}
-
-// ---------------------------------------------------------------------------
 // Helper: parse "Key=Value&Key2=Value2" -> map
 // ---------------------------------------------------------------------------
 static std::map<std::string, std::string> ParseStreamHeaders(const std::string& hdrs)
@@ -358,10 +337,7 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
         // 1) Replace stream URL with resolved MPD location
         streamURL = phpInfo.finalUrl;
 
-        // 2) DAZN: strip token garbage after .mpd
-        streamURL = TrimAfterMpd(streamURL);
-
-        // 3) ClearKey DRM via inputstream.adaptive.drm (ISA 22 new format):
+        // 2) ClearKey DRM via inputstream.adaptive.drm (ISA 22 new format):
         //    {"org.w3.clearkey":{"license":{"keyids":{"KID":"KEY",...}}}}
         //    KID/Key in hex, no Base64. PHP keys are always fresh.
         if (!phpInfo.clearKeys.empty())
@@ -375,7 +351,7 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
           phpDrmSet = true;
         }
 
-        // 4) Merge stream headers (M3U base + PHP overlay, PHP wins) and
+        // 3) Merge stream headers (M3U base + PHP overlay, PHP wins) and
         //    apply to BOTH stream_headers (segments) AND manifest_headers (MPD).
         //    In ISA 22 these are separate properties:
         //      inputstream.adaptive.manifest_headers -> manifest download
@@ -417,7 +393,7 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
           }
         }
 
-        // 5) Force ISA to stay at 1080p from the very first segment by
+        // 4) Force ISA to stay at 1080p from the very first segment by
         //    setting both a high ceiling and a floor above the 720p track.
         //
         //    Root cause (observed in debug log):

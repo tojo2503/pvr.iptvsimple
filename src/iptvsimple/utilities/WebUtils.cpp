@@ -358,25 +358,127 @@ std::map<std::string, std::string> WebUtils::ParseClearKeyHeader(const std::stri
   return keys;
 }
 
+// ---------------------------------------------------------------------------
+// ParseAddHeader: parse x-vip-addheader as a flat JSON object.
+//
+// Expected PHP format:
+//   {"Header-Name":"value","Another-Header":"value with \"quotes\" and commas, etc."}
+//
+// The old comma/equals format ("Key=Value,Key=Value") is no longer supported.
+// A hand-rolled parser is used so no additional JSON library dependency is needed.
+// All standard JSON string escape sequences are handled (\", \\, \/, \n, \r, \t).
+// ---------------------------------------------------------------------------
 std::map<std::string, std::string> WebUtils::ParseAddHeader(const std::string& headerValue)
 {
   std::map<std::string, std::string> headers;
 
-  std::istringstream stream(headerValue);
-  std::string item;
-  while (std::getline(stream, item, ','))
+  Logger::Log(LEVEL_INFO, "%s raw x-vip-addheader: [%s]", __func__, headerValue.c_str());
+
+  const std::string& s = headerValue;
+  size_t i = 0;
+  const size_t n = s.size();
+
+  // --- skip leading whitespace and locate opening '{' ---
+  while (i < n && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
+
+  if (i >= n || s[i] != '{')
   {
-    StringUtils::Trim(item);
-    if (item.empty()) continue;
-    size_t eqPos = item.find('=');
-    if (eqPos == std::string::npos) continue;
-    std::string name  = item.substr(0, eqPos);
-    std::string value = item.substr(eqPos + 1);
-    StringUtils::Trim(name);
-    StringUtils::Trim(value);
-    if (!name.empty() && !value.empty())
-      headers[name] = value;
+    Logger::Log(LEVEL_WARNING,
+                "%s x-vip-addheader does not start with '{' – expected JSON object, ignoring",
+                __func__);
+    return headers;
   }
+  ++i; // consume '{'
+
+  // --- local helpers via lambdas ---
+
+  auto skipWs = [&]() {
+    while (i < n && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
+  };
+
+  // Read a JSON-encoded string.  Cursor must be positioned at the opening '"'.
+  // Returns true and fills `out` on success; returns false on parse error.
+  auto readJsonString = [&](std::string& out) -> bool {
+    skipWs();
+    if (i >= n || s[i] != '"') return false;
+    ++i; // consume opening '"'
+    out.clear();
+    while (i < n)
+    {
+      const char c = s[i++];
+      if (c == '"')
+        return true; // closing quote – done
+
+      if (c == '\\' && i < n)
+      {
+        const char esc = s[i++];
+        switch (esc)
+        {
+          case '"':  out += '"';  break;
+          case '\\': out += '\\'; break;
+          case '/':  out += '/';  break;
+          case 'n':  out += '\n'; break;
+          case 'r':  out += '\r'; break;
+          case 't':  out += '\t'; break;
+          default:   out += esc;  break; // pass through unknown escapes
+        }
+      }
+      else
+      {
+        out += c;
+      }
+    }
+    return false; // unterminated string
+  };
+
+  // --- main parse loop ---
+  while (i < n)
+  {
+    skipWs();
+    if (i >= n) break;
+    if (s[i] == '}') break; // end of JSON object
+
+    // Read key
+    std::string key;
+    if (!readJsonString(key))
+    {
+      Logger::Log(LEVEL_WARNING, "%s Failed to read JSON key at position %zu, aborting",
+                  __func__, i);
+      break;
+    }
+
+    // Expect ':'
+    skipWs();
+    if (i >= n || s[i] != ':')
+    {
+      Logger::Log(LEVEL_WARNING,
+                  "%s Expected ':' after key '%s' at position %zu, aborting",
+                  __func__, key.c_str(), i);
+      break;
+    }
+    ++i; // consume ':'
+
+    // Read value
+    std::string value;
+    if (!readJsonString(value))
+    {
+      Logger::Log(LEVEL_WARNING,
+                  "%s Failed to read JSON value for key '%s' at position %zu, aborting",
+                  __func__, key.c_str(), i);
+      break;
+    }
+
+    Logger::Log(LEVEL_INFO, "%s addheader parsed: [%s] = [%s]",
+                __func__, key.c_str(), value.c_str());
+    headers[key] = value;
+
+    // Optional trailing comma before next pair
+    skipWs();
+    if (i < n && s[i] == ',') ++i;
+  }
+
+  Logger::Log(LEVEL_INFO, "%s x-vip-addheader: %zu header(s) parsed",
+              __func__, headers.size());
   return headers;
 }
 

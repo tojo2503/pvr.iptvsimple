@@ -300,14 +300,8 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
   {
     std::string streamURL = m_currentChannel.GetStreamURL();
 
-    // This reset will have no effect if we tried to play an epg tag as live
-    // i.e GetEPGTagStreamProperties will have been called prior to GetChannelStreamProperties
-    // So the state will not be reset as we need to carry the EPG entry details over to the timehifted live stream.
-    m_catchupController.ResetCatchupState(); // TODO: we need this currently until we have a way to know the stream stops.
+    m_catchupController.ResetCatchupState();
 
-    // We always call the catchup controller regardless so it can cleanup state
-    // whether or not it supports catchup in case there is any houskeeping to do
-    // This also allows us to check if this is a catchup stream or not when we try to get the URL.
     std::map<std::string, std::string> catchupProperties;
     m_catchupController.ProcessChannelForPlayback(m_currentChannel, catchupProperties);
 
@@ -320,9 +314,6 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
     // -----------------------------------------------------------------------
     // PHP-proxy resolution
     // -----------------------------------------------------------------------
-    // Track whether we set inputstream.adaptive.drm from PHP clearkeys so we
-    // can post-process the properties vector and strip conflicting legacy DRM
-    // properties. ISA 22 rejects mixed DRM config (drm + drm_legacy etc).
     bool phpDrmSet = false;
 
     if (IsPhpUrl(streamURL))
@@ -337,78 +328,83 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
         // 1) Replace stream URL with resolved MPD location
         streamURL = phpInfo.finalUrl;
 
-        // 2) ClearKey DRM via inputstream.adaptive.drm (ISA 22 new format):
-        //    {"org.w3.clearkey":{"license":{"keyids":{"KID":"KEY",...}}}}
-        //    KID/Key in hex, no Base64. PHP keys are always fresh.
+        // 2) ClearKey DRM
         if (!phpInfo.clearKeys.empty())
         {
           const std::string drmValue = BuildClearKeyDrmProperty(phpInfo.clearKeys);
-
           Logger::Log(LEVEL_INFO, "%s setting inputstream.adaptive.drm -> [%s]",
                       __FUNCTION__, drmValue.c_str());
-
           m_currentChannel.AddProperty("inputstream.adaptive.drm", drmValue);
           phpDrmSet = true;
         }
 
-        // 3) Merge stream headers (M3U base + PHP overlay, PHP wins) and
-        //    apply to BOTH stream_headers (segments) AND manifest_headers (MPD).
-        //    In ISA 22 these are separate properties:
-        //      inputstream.adaptive.manifest_headers -> manifest download
-        //      inputstream.adaptive.stream_headers   -> segment downloads
-        //    Without manifest_headers the MPD fetch has no User-Agent / auth tokens.
+        // 3) Merge stream headers (M3U base + PHP overlay) and apply to
+        //    both stream_headers (segments) and manifest_headers (MPD).
         {
           const std::string STREAM_HDR   = "inputstream.adaptive.stream_headers";
           const std::string MANIFEST_HDR = "inputstream.adaptive.manifest_headers";
 
+          // --- DEBUG: show what the M3U set before we touch anything ---
+          const std::string m3uStreamHdr = m_currentChannel.GetProperty(STREAM_HDR);
+          Logger::Log(LEVEL_DEBUG, "%s [HDR-MERGE] M3U stream_headers (raw):     [%s]",
+                      __FUNCTION__, m3uStreamHdr.empty() ? "(empty)" : m3uStreamHdr.c_str());
+          Logger::Log(LEVEL_DEBUG, "%s [HDR-MERGE] M3U manifest_headers (raw):   [%s]",
+                      __FUNCTION__, m_currentChannel.GetProperty(MANIFEST_HDR).empty()
+                                    ? "(empty)"
+                                    : m_currentChannel.GetProperty(MANIFEST_HDR).c_str());
+
           // Start from whatever the M3U set in stream_headers
           std::map<std::string, std::string> mergedHdrs =
-              ParseStreamHeaders(m_currentChannel.GetProperty(STREAM_HDR));
+              ParseStreamHeaders(m3uStreamHdr);
+
+          Logger::Log(LEVEL_DEBUG, "%s [HDR-MERGE] M3U parsed into %zu key(s):",
+                      __FUNCTION__, mergedHdrs.size());
+          for (const auto& kv : mergedHdrs)
+            Logger::Log(LEVEL_DEBUG, "%s [HDR-MERGE]   M3U key=[%s] value=[%s]",
+                        __FUNCTION__, kv.first.c_str(), kv.second.c_str());
+
+          // --- DEBUG: PHP-supplied headers before merge ---
+          Logger::Log(LEVEL_DEBUG, "%s [HDR-MERGE] PHP addHeaders count: %zu",
+                      __FUNCTION__, phpInfo.addHeaders.size());
+          for (const auto& hv : phpInfo.addHeaders)
+            Logger::Log(LEVEL_DEBUG, "%s [HDR-MERGE]   PHP key=[%s] value=[%s]",
+                        __FUNCTION__, hv.first.c_str(), hv.second.c_str());
 
           // Overlay PHP-supplied headers (PHP wins on conflicts)
           for (const auto& hv : phpInfo.addHeaders)
             mergedHdrs[hv.first] = hv.second;
 
+          // --- DEBUG: merged result ---
+          Logger::Log(LEVEL_DEBUG, "%s [HDR-MERGE] merged map (%zu key(s)):",
+                      __FUNCTION__, mergedHdrs.size());
+          for (const auto& kv : mergedHdrs)
+            Logger::Log(LEVEL_DEBUG, "%s [HDR-MERGE]   final key=[%s] value=[%s]",
+                        __FUNCTION__, kv.first.c_str(), kv.second.c_str());
+
           const std::string finalHdrStr = SerialiseStreamHeaders(mergedHdrs);
 
-          // Update both properties so both manifest and segment requests
-          // carry the correct headers
+          Logger::Log(LEVEL_DEBUG, "%s [HDR-MERGE] serialised -> [%s]",
+                      __FUNCTION__, finalHdrStr.empty() ? "(empty)" : finalHdrStr.c_str());
+
           if (!finalHdrStr.empty())
           {
-            m_currentChannel.AddProperty(STREAM_HDR, finalHdrStr);
+            m_currentChannel.AddProperty(STREAM_HDR,   finalHdrStr);
             m_currentChannel.AddProperty(MANIFEST_HDR, finalHdrStr);
-          }
-
-          if (!phpInfo.addHeaders.empty())
-          {
             Logger::Log(LEVEL_INFO,
-                        "%s stream+manifest headers after PHP merge: %s",
+                        "%s [HDR-MERGE] stream_headers SET:   [%s]",
+                        __FUNCTION__, finalHdrStr.c_str());
+            Logger::Log(LEVEL_INFO,
+                        "%s [HDR-MERGE] manifest_headers SET: [%s]",
                         __FUNCTION__, finalHdrStr.c_str());
           }
           else
           {
-            Logger::Log(LEVEL_INFO,
-                        "%s stream+manifest headers (M3U only, no PHP addheader): %s",
-                        __FUNCTION__, finalHdrStr.empty() ? "(none)" : finalHdrStr.c_str());
+            Logger::Log(LEVEL_WARNING, "%s [HDR-MERGE] finalHdrStr is empty – no headers set!",
+                        __FUNCTION__);
           }
         }
 
-        // 4) Force ISA to stay at 1080p from the very first segment by
-        //    setting both a high ceiling and a floor above the 720p track.
-        //
-        //    Root cause (observed in debug log):
-        //      - ISA initial bandwidth estimate ~6.5 Mbit/s
-        //      - 720p repr = 4800000 bps  -> selected at start
-        //      - 1080p repr = 7800000 bps -> switched to after ~1 s
-        //    The quality switch delivers a new SPS/PPS mid-stream; the
-        //    FFmpeg multi-threaded H.264 decoder loses its state and
-        //    produces a cascade of "h264 non-existing PPS" / "no frame!"
-        //    errors until playback breaks.
-        //
-        //    Fix: chooser_bandwidth_min = 8000000 bps (just above 720p)
-        //    ensures only the 1080p representation is ever eligible.
-        //    chooser_bandwidth_max = 100000000 bps (100 Mbit/s) keeps the
-        //    ceiling effectively unlimited.
+        // 4) Force 1080p from first segment
         m_currentChannel.AddProperty("inputstream.adaptive.chooser_bandwidth_max", "100000000");
         m_currentChannel.AddProperty("inputstream.adaptive.chooser_bandwidth_min", "8000000");
 
@@ -422,14 +418,28 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
     }
     // -----------------------------------------------------------------------
 
+    // --- DEBUG: dump ALL channel properties that will be passed to ISA ---
+    {
+      const auto& allProps = m_currentChannel.GetProperties();
+      Logger::Log(LEVEL_DEBUG, "%s [PROPS] channel properties to ISA (%zu total):",
+                  __FUNCTION__, allProps.size());
+      for (const auto& p : allProps)
+        Logger::Log(LEVEL_DEBUG, "%s [PROPS]   [%s] = [%s]",
+                    __FUNCTION__, p.first.c_str(), p.second.c_str());
+    }
+
     streamURL = StreamUtils::WebStreamExtractor(streamURL, m_currentChannel);
     StreamUtils::SetAllStreamProperties(properties, m_currentChannel, streamURL, catchupUrl.empty(), catchupProperties, m_settings);
 
+    // --- DEBUG: dump final PVRStreamProperty vector sent to Kodi ---
+    Logger::Log(LEVEL_DEBUG, "%s [FINAL-PROPS] PVRStreamProperty vector (%zu entries):",
+                __FUNCTION__, properties.size());
+    for (const auto& p : properties)
+      Logger::Log(LEVEL_DEBUG, "%s [FINAL-PROPS]   [%s] = [%s]",
+                  __FUNCTION__, p.GetName().c_str(), p.GetValue().c_str());
+
     // -----------------------------------------------------------------------
-    // Post-process: if PHP resolver set inputstream.adaptive.drm, remove any
-    // conflicting legacy DRM properties from the final vector.
-    // ISA 22 rejects a mix of drm + drm_legacy / license_type / license_key
-    // even when the legacy property has an empty value.
+    // Post-process: strip legacy DRM properties if PHP set inputstream.adaptive.drm
     // -----------------------------------------------------------------------
     if (phpDrmSet)
     {
@@ -522,7 +532,7 @@ PVR_ERROR IptvSimple::GetEPGTagStreamProperties(const kodi::addon::PVREPGTag& ta
     }
     else
     {
-      m_catchupController.ResetCatchupState(); // TODO: we need this currently until we have a way to know the stream stops.
+      m_catchupController.ResetCatchupState();
       m_catchupController.ProcessEPGTagForVideoPlayback(tag, m_currentChannel, catchupProperties);
     }
 
@@ -547,13 +557,11 @@ PVR_ERROR IptvSimple::IsEPGTagPlayable(const kodi::addon::PVREPGTag& tag, bool& 
   const time_t now = std::time(nullptr);
   Channel channel{m_settings};
 
-  // Get the channel and set the current tag on it if found
   bIsPlayable = GetChannel(static_cast<int>(tag.GetUniqueChannelId()), channel) &&
                 m_settings->IsCatchupEnabled() && channel.IsCatchupSupported();
 
   if (channel.IgnoreCatchupDays())
   {
-    // If we ignore catchup days then any tag can be played but only if it has a catchup ID
     bool hasCatchupId = false;
     EpgEntry* epgEntry = m_catchupController.GetEPGEntry(channel, tag.GetStartTime());
     if (epgEntry)
@@ -665,8 +673,6 @@ ADDON_STATUS IptvSimple::SetInstanceSetting(const std::string& settingName, cons
 {
   std::lock_guard<std::mutex> lock(m_mutex);
 
-  // When a number of settings change set this on the first one so it can be picked up
-  // in the process call for a reload of channels, groups and EPG.
   if (!m_reloadChannelsGroupsAndEPG)
     m_reloadChannelsGroupsAndEPG = true;
 

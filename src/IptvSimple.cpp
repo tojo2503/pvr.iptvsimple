@@ -124,7 +124,6 @@ PVR_ERROR IptvSimple::GetBackendName(std::string& name)
 }
 PVR_ERROR IptvSimple::GetBackendVersion(std::string& version)
 {
-  // Some linux platform require the full string initialisation here to compile. No idea why.
   version = std::string(STR(IPTV_VERSION));
   return PVR_ERROR_NO_ERROR;
 }
@@ -138,7 +137,7 @@ void IptvSimple::Process()
 {
   unsigned int refreshTimer = 0;
   time_t lastRefreshTimeSeconds = std::time(nullptr);
-  int lastRefreshHour = m_settings->GetM3URefreshHour(); //ignore if we start during same hour
+  int lastRefreshHour = m_settings->GetM3URefreshHour();
 
   while (m_running)
   {
@@ -164,7 +163,7 @@ void IptvSimple::Process()
 
       m_settings->ReloadAddonInstanceSettings();
       m_playlistLoader.ReloadPlayList();
-      m_epg.ReloadEPG(); // Reloading EPG also updates media
+      m_epg.ReloadEPG();
 
       m_reloadChannelsGroupsAndEPG = false;
       refreshTimer = 0;
@@ -180,7 +179,6 @@ void IptvSimple::Process()
 PVR_ERROR IptvSimple::GetProvidersAmount(int& amount)
 {
   amount = m_providers.GetNumProviders();
-
   return PVR_ERROR_NO_ERROR;
 }
 
@@ -214,7 +212,6 @@ PVR_ERROR IptvSimple::GetChannelsAmount(int& amount)
 PVR_ERROR IptvSimple::GetChannels(bool radio, kodi::addon::PVRChannelsResultSet& results)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
-
   return m_channels.GetChannels(results, radio);
 }
 
@@ -271,13 +268,41 @@ static std::string SerialiseStreamHeaders(const std::map<std::string, std::strin
 }
 
 // ---------------------------------------------------------------------------
+// Helper: find a property by name in the PVRStreamProperty vector,
+// merge PHP headers into its value, replace it.  If not found, append it.
+// ---------------------------------------------------------------------------
+static void PatchStreamPropertyHeaders(
+    std::vector<kodi::addon::PVRStreamProperty>& properties,
+    const std::string& propName,
+    const std::map<std::string, std::string>& phpHeaders)
+{
+  for (auto it = properties.begin(); it != properties.end(); ++it)
+  {
+    if (it->GetName() == propName)
+    {
+      // Merge: existing value wins as base, PHP headers overlay (PHP wins)
+      auto merged = ParseStreamHeaders(it->GetValue());
+      for (const auto& hv : phpHeaders)
+        merged[hv.first] = hv.second;
+      const std::string newVal = SerialiseStreamHeaders(merged);
+      Logger::Log(LEVEL_DEBUG,
+                  "PatchStreamPropertyHeaders [%s] before=[%s] after=[%s]",
+                  propName.c_str(), it->GetValue().c_str(), newVal.c_str());
+      properties.erase(it);
+      properties.emplace_back(propName, newVal);
+      return;
+    }
+  }
+  // Property not present at all -> add it with PHP headers only
+  const std::string newVal = SerialiseStreamHeaders(phpHeaders);
+  Logger::Log(LEVEL_DEBUG,
+              "PatchStreamPropertyHeaders [%s] (new) -> [%s]",
+              propName.c_str(), newVal.c_str());
+  properties.emplace_back(propName, newVal);
+}
+
+// ---------------------------------------------------------------------------
 // Build inputstream.adaptive.drm JSON for ClearKey from hex KID/KEY pairs.
-//
-// ISA 22 inputstream.adaptive.drm format (plain JSON dict, NO pipe prefix):
-//   {"org.w3.clearkey":{"license":{"keyids":{"KID_HEX":"KEY_HEX",...}}}}
-//
-// KID/Key values are in hex format - no Base64 conversion.
-// Ref: https://github.com/xbmc/inputstream.adaptive/wiki/Integration-DRM
 // ---------------------------------------------------------------------------
 static std::string BuildClearKeyDrmProperty(
     const std::map<std::string, std::string>& hexKeyMap)
@@ -290,7 +315,6 @@ static std::string BuildClearKeyDrmProperty(
     keyidsJson += '"' + kv.first + "\":\"" + kv.second + '"';
     first = false;
   }
-
   return "{\"org.w3.clearkey\":{\"license\":{\"keyids\":{" + keyidsJson + "}}}}";
 }
 
@@ -313,7 +337,17 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
 
     // -----------------------------------------------------------------------
     // PHP-proxy resolution
+    //
+    // IMPORTANT: we do NOT set stream_headers/manifest_headers on
+    // m_currentChannel here.  WebStreamExtractor (called below) reads the
+    // pipe-encoded headers from the M3U stream URL and overwrites
+    // stream_headers on the channel object, so any pre-set value is lost.
+    //
+    // Instead we save the PHP-supplied headers in `phpAddHeaders` and apply
+    // them AFTER SetAllStreamProperties by patching the properties vector
+    // directly – at that point nothing can overwrite them anymore.
     // -----------------------------------------------------------------------
+    std::map<std::string, std::string> phpAddHeaders;
     bool phpDrmSet = false;
 
     if (IsPhpUrl(streamURL))
@@ -338,71 +372,13 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
           phpDrmSet = true;
         }
 
-        // 3) Merge stream headers (M3U base + PHP overlay) and apply to
-        //    both stream_headers (segments) and manifest_headers (MPD).
-        {
-          const std::string STREAM_HDR   = "inputstream.adaptive.stream_headers";
-          const std::string MANIFEST_HDR = "inputstream.adaptive.manifest_headers";
-
-          // --- DEBUG: show what the M3U set before we touch anything ---
-          const std::string m3uStreamHdr = m_currentChannel.GetProperty(STREAM_HDR);
-          Logger::Log(LEVEL_DEBUG, "%s [HDR-MERGE] M3U stream_headers (raw):     [%s]",
-                      __FUNCTION__, m3uStreamHdr.empty() ? "(empty)" : m3uStreamHdr.c_str());
-          Logger::Log(LEVEL_DEBUG, "%s [HDR-MERGE] M3U manifest_headers (raw):   [%s]",
-                      __FUNCTION__, m_currentChannel.GetProperty(MANIFEST_HDR).empty()
-                                    ? "(empty)"
-                                    : m_currentChannel.GetProperty(MANIFEST_HDR).c_str());
-
-          // Start from whatever the M3U set in stream_headers
-          std::map<std::string, std::string> mergedHdrs =
-              ParseStreamHeaders(m3uStreamHdr);
-
-          Logger::Log(LEVEL_DEBUG, "%s [HDR-MERGE] M3U parsed into %zu key(s):",
-                      __FUNCTION__, mergedHdrs.size());
-          for (const auto& kv : mergedHdrs)
-            Logger::Log(LEVEL_DEBUG, "%s [HDR-MERGE]   M3U key=[%s] value=[%s]",
-                        __FUNCTION__, kv.first.c_str(), kv.second.c_str());
-
-          // --- DEBUG: PHP-supplied headers before merge ---
-          Logger::Log(LEVEL_DEBUG, "%s [HDR-MERGE] PHP addHeaders count: %zu",
-                      __FUNCTION__, phpInfo.addHeaders.size());
-          for (const auto& hv : phpInfo.addHeaders)
-            Logger::Log(LEVEL_DEBUG, "%s [HDR-MERGE]   PHP key=[%s] value=[%s]",
-                        __FUNCTION__, hv.first.c_str(), hv.second.c_str());
-
-          // Overlay PHP-supplied headers (PHP wins on conflicts)
-          for (const auto& hv : phpInfo.addHeaders)
-            mergedHdrs[hv.first] = hv.second;
-
-          // --- DEBUG: merged result ---
-          Logger::Log(LEVEL_DEBUG, "%s [HDR-MERGE] merged map (%zu key(s)):",
-                      __FUNCTION__, mergedHdrs.size());
-          for (const auto& kv : mergedHdrs)
-            Logger::Log(LEVEL_DEBUG, "%s [HDR-MERGE]   final key=[%s] value=[%s]",
-                        __FUNCTION__, kv.first.c_str(), kv.second.c_str());
-
-          const std::string finalHdrStr = SerialiseStreamHeaders(mergedHdrs);
-
-          Logger::Log(LEVEL_DEBUG, "%s [HDR-MERGE] serialised -> [%s]",
-                      __FUNCTION__, finalHdrStr.empty() ? "(empty)" : finalHdrStr.c_str());
-
-          if (!finalHdrStr.empty())
-          {
-            m_currentChannel.AddProperty(STREAM_HDR,   finalHdrStr);
-            m_currentChannel.AddProperty(MANIFEST_HDR, finalHdrStr);
-            Logger::Log(LEVEL_INFO,
-                        "%s [HDR-MERGE] stream_headers SET:   [%s]",
-                        __FUNCTION__, finalHdrStr.c_str());
-            Logger::Log(LEVEL_INFO,
-                        "%s [HDR-MERGE] manifest_headers SET: [%s]",
-                        __FUNCTION__, finalHdrStr.c_str());
-          }
-          else
-          {
-            Logger::Log(LEVEL_WARNING, "%s [HDR-MERGE] finalHdrStr is empty – no headers set!",
-                        __FUNCTION__);
-          }
-        }
+        // 3) Save PHP headers for post-processing (see below)
+        phpAddHeaders = phpInfo.addHeaders;
+        Logger::Log(LEVEL_DEBUG, "%s PHP addHeaders saved (%zu key(s)) for post-patch:",
+                    __FUNCTION__, phpAddHeaders.size());
+        for (const auto& hv : phpAddHeaders)
+          Logger::Log(LEVEL_DEBUG, "%s   [%s] = [%s]",
+                      __FUNCTION__, hv.first.c_str(), hv.second.c_str());
 
         // 4) Force 1080p from first segment
         m_currentChannel.AddProperty("inputstream.adaptive.chooser_bandwidth_max", "100000000");
@@ -418,28 +394,39 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
     }
     // -----------------------------------------------------------------------
 
-    // --- DEBUG: dump ALL channel properties that will be passed to ISA ---
-    {
-      const auto& allProps = m_currentChannel.GetProperties();
-      Logger::Log(LEVEL_DEBUG, "%s [PROPS] channel properties to ISA (%zu total):",
-                  __FUNCTION__, allProps.size());
-      for (const auto& p : allProps)
-        Logger::Log(LEVEL_DEBUG, "%s [PROPS]   [%s] = [%s]",
-                    __FUNCTION__, p.first.c_str(), p.second.c_str());
-    }
-
+    // Let WebStreamExtractor and SetAllStreamProperties run normally.
+    // WebStreamExtractor will set stream_headers from the M3U pipe-format URL.
+    // That is fine – we will patch on top of it immediately after.
     streamURL = StreamUtils::WebStreamExtractor(streamURL, m_currentChannel);
     StreamUtils::SetAllStreamProperties(properties, m_currentChannel, streamURL, catchupUrl.empty(), catchupProperties, m_settings);
 
-    // --- DEBUG: dump final PVRStreamProperty vector sent to Kodi ---
-    Logger::Log(LEVEL_DEBUG, "%s [FINAL-PROPS] PVRStreamProperty vector (%zu entries):",
-                __FUNCTION__, properties.size());
-    for (const auto& p : properties)
-      Logger::Log(LEVEL_DEBUG, "%s [FINAL-PROPS]   [%s] = [%s]",
-                  __FUNCTION__, p.GetName().c_str(), p.GetValue().c_str());
+    // -----------------------------------------------------------------------
+    // Post-patch: merge PHP-supplied headers into stream_headers AND
+    // manifest_headers inside the final properties vector.
+    // This runs after SetAllStreamProperties so it cannot be overwritten.
+    // -----------------------------------------------------------------------
+    if (!phpAddHeaders.empty())
+    {
+      const std::string STREAM_HDR   = "inputstream.adaptive.stream_headers";
+      const std::string MANIFEST_HDR = "inputstream.adaptive.manifest_headers";
+
+      Logger::Log(LEVEL_DEBUG, "%s [POST-PATCH] applying %zu PHP header(s) to properties vector",
+                  __FUNCTION__, phpAddHeaders.size());
+
+      PatchStreamPropertyHeaders(properties, STREAM_HDR,   phpAddHeaders);
+      PatchStreamPropertyHeaders(properties, MANIFEST_HDR, phpAddHeaders);
+
+      // DEBUG: confirm final values
+      for (const auto& p : properties)
+      {
+        if (p.GetName() == STREAM_HDR || p.GetName() == MANIFEST_HDR)
+          Logger::Log(LEVEL_DEBUG, "%s [POST-PATCH] confirmed [%s] = [%s]",
+                      __FUNCTION__, p.GetName().c_str(), p.GetValue().c_str());
+      }
+    }
 
     // -----------------------------------------------------------------------
-    // Post-process: strip legacy DRM properties if PHP set inputstream.adaptive.drm
+    // Post-process: strip legacy DRM properties if PHP set .drm
     // -----------------------------------------------------------------------
     if (phpDrmSet)
     {
@@ -453,13 +440,14 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
                    n == "inputstream.adaptive.license_key";
           }),
         properties.end());
-
-      Logger::Log(LEVEL_DEBUG, "%s Stripped legacy DRM properties from stream property vector",
-                  __FUNCTION__);
+      Logger::Log(LEVEL_DEBUG, "%s Stripped legacy DRM properties", __FUNCTION__);
     }
     // -----------------------------------------------------------------------
 
-    Logger::Log(LogLevel::LEVEL_INFO, "%s - Live %s URL: %s", __FUNCTION__, catchupUrl.empty() ? "Stream" : "Catchup", WebUtils::RedactUrl(streamURL).c_str());
+    Logger::Log(LogLevel::LEVEL_INFO, "%s - Live %s URL: %s",
+                __FUNCTION__,
+                catchupUrl.empty() ? "Stream" : "Catchup",
+                WebUtils::RedactUrl(streamURL).c_str());
 
     return PVR_ERROR_NO_ERROR;
   }
@@ -470,14 +458,12 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
 bool IptvSimple::GetChannel(const kodi::addon::PVRChannel& channel, Channel& myChannel)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
-
   return m_channels.GetChannel(channel, myChannel);
 }
 
 bool IptvSimple::GetChannel(unsigned int uniqueChannelId, iptvsimple::data::Channel& myChannel)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
-
   return m_channels.GetChannel(uniqueChannelId, myChannel);
 }
 
@@ -495,14 +481,12 @@ PVR_ERROR IptvSimple::GetChannelGroupsAmount(int& amount)
 PVR_ERROR IptvSimple::GetChannelGroups(bool radio, kodi::addon::PVRChannelGroupsResultSet& results)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
-
   return m_channelGroups.GetChannelGroups(results, radio);
 }
 
 PVR_ERROR IptvSimple::GetChannelGroupMembers(const kodi::addon::PVRChannelGroup& group, kodi::addon::PVRChannelGroupMembersResultSet& results)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
-
   return m_channelGroups.GetChannelGroupMembers(group, results);
 }
 
@@ -513,7 +497,6 @@ PVR_ERROR IptvSimple::GetChannelGroupMembers(const kodi::addon::PVRChannelGroup&
 PVR_ERROR IptvSimple::GetEPGForChannel(int channelUid, time_t start, time_t end, kodi::addon::PVREPGTagsResultSet& results)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
-
   return m_epg.GetEPGForChannel(channelUid, start, end, results);
 }
 
@@ -540,7 +523,6 @@ PVR_ERROR IptvSimple::GetEPGTagStreamProperties(const kodi::addon::PVREPGTag& ta
     if (!catchupUrl.empty())
     {
       StreamUtils::SetAllStreamProperties(properties, m_currentChannel, catchupUrl, false, catchupProperties, m_settings);
-
       Logger::Log(LEVEL_INFO, "%s - EPG Catchup URL: %s", __FUNCTION__, WebUtils::RedactUrl(catchupUrl).c_str());
       return PVR_ERROR_NO_ERROR;
     }
@@ -566,7 +548,6 @@ PVR_ERROR IptvSimple::IsEPGTagPlayable(const kodi::addon::PVREPGTag& tag, bool& 
     EpgEntry* epgEntry = m_catchupController.GetEPGEntry(channel, tag.GetStartTime());
     if (epgEntry)
       hasCatchupId = !epgEntry->GetCatchupId().empty();
-
     bIsPlayable = bIsPlayable && hasCatchupId;
   }
   else
@@ -603,7 +584,6 @@ PVR_ERROR IptvSimple::GetRecordingsAmount(bool deleted, int& amount)
     amount = 0;
   else
     amount = m_media.GetNumMedia();
-
   return PVR_ERROR_NO_ERROR;
 }
 
@@ -616,13 +596,10 @@ PVR_ERROR IptvSimple::GetRecordings(bool deleted, kodi::addon::PVRRecordingsResu
       std::lock_guard<std::mutex> lock(m_mutex);
       m_media.GetMedia(media);
     }
-
     for (const auto& mediaTag : media)
       results.Add(mediaTag);
-
     Logger::Log(LEVEL_DEBUG, "%s - media available '%d'", __func__, media.size());
   }
-
   return PVR_ERROR_NO_ERROR;
 }
 
@@ -635,7 +612,6 @@ PVR_ERROR IptvSimple::GetRecordingStreamProperties(const kodi::addon::PVRRecordi
   {
     url = StreamUtils::WebStreamExtractor(url, mediaEntry);
     StreamUtils::SetAllStreamProperties(properties, mediaEntry, url, m_settings);
-
     return PVR_ERROR_NO_ERROR;
   }
 
@@ -650,7 +626,6 @@ PVR_ERROR IptvSimple::GetSignalStatus(int channelUid, kodi::addon::PVRSignalStat
 {
   signalStatus.SetAdapterName("IPTV Simple Adapter 1");
   signalStatus.SetAdapterStatus("OK");
-
   return PVR_ERROR_NO_ERROR;
 }
 
@@ -661,7 +636,6 @@ PVR_ERROR IptvSimple::GetSignalStatus(int channelUid, kodi::addon::PVRSignalStat
 PVR_ERROR IptvSimple::StreamClosed()
 {
   Logger::Log(LEVEL_INFO, "%s - Stream Closed", __FUNCTION__);
-
   return PVR_ERROR_NO_ERROR;
 }
 

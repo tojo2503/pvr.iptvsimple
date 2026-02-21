@@ -313,14 +313,37 @@ static std::string BuildClearKeyDrmProperty(
 }
 
 // ---------------------------------------------------------------------------
-// Build inputstream.adaptive.drm JSON for Widevine from a license server URL.
+// Build inputstream.adaptive.drm JSON for Widevine.
 //
-// ISA 22 format:
+// ISA 22 format (no extra headers):
 //   {"com.widevine.alpha":{"license":{"server_url":"https://..."}}}
+//
+// ISA 22 format (with req_headers):
+//   {"com.widevine.alpha":{"license":{"server_url":"https://...",
+//     "req_headers":{"Header-Name":"value"}}}}
+//
+// licenceHeaders are the x-vip-addheader entries forwarded verbatim to
+// the Widevine license request so auth tokens reach the license server.
 // ---------------------------------------------------------------------------
-static std::string BuildWidevineDrmProperty(const std::string& licenceUrl)
+static std::string BuildWidevineDrmProperty(
+    const std::string& licenceUrl,
+    const std::map<std::string, std::string>& licenceHeaders)
 {
-  return "{\"com.widevine.alpha\":{\"license\":{\"server_url\":\"" + licenceUrl + "\"}}}";
+  std::string reqHeadersJson;
+  if (!licenceHeaders.empty())
+  {
+    reqHeadersJson = ",\"req_headers\":{";
+    bool first = true;
+    for (const auto& kv : licenceHeaders)
+    {
+      if (!first) reqHeadersJson += ',';
+      reqHeadersJson += '"' + kv.first + "\":\"" + kv.second + '"';
+      first = false;
+    }
+    reqHeadersJson += '}';
+  }
+  return "{\"com.widevine.alpha\":{\"license\":{\"server_url\":\"" +
+         licenceUrl + '"' + reqHeadersJson + "}}}";
 }
 
 PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& channel, PVR_SOURCE source, std::vector<kodi::addon::PVRStreamProperty>& properties)
@@ -351,6 +374,8 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
     //  - DRM properties are set on m_currentChannel (not touched by extractor)
     //  - phpAddHeaders are saved and applied AFTER SetAllStreamProperties by
     //    patching the final properties vector directly.
+    //  - For Widevine, phpAddHeaders are also embedded in the DRM JSON as
+    //    req_headers so the license server receives auth headers too.
     // -----------------------------------------------------------------------
     std::map<std::string, std::string> phpAddHeaders;
     bool phpDrmSet = false;
@@ -376,16 +401,25 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
           phpDrmSet = true;
         }
 
-        // 2b) Widevine DRM (x-vip-licence) – mutually exclusive with ClearKey
+        // 2b) Widevine DRM (x-vip-licence) - mutually exclusive with ClearKey.
+        //     x-vip-addheader entries are forwarded as req_headers so that
+        //     auth headers (e.g. Authorization: Bearer) reach the license server.
         if (!phpInfo.licenceUrl.empty() && !phpDrmSet)
         {
-          const std::string drmValue = BuildWidevineDrmProperty(phpInfo.licenceUrl);
-          Logger::Log(LEVEL_INFO, "%s setting Widevine DRM -> [%s]", __FUNCTION__, drmValue.c_str());
+          Logger::Log(LEVEL_INFO, "%s setting Widevine DRM, server_url=[%s], %zu req_header(s)",
+                      __FUNCTION__, phpInfo.licenceUrl.c_str(), phpInfo.addHeaders.size());
+          for (const auto& hv : phpInfo.addHeaders)
+            Logger::Log(LEVEL_DEBUG, "%s   Widevine req_header [%s] = [%s]",
+                        __FUNCTION__, hv.first.c_str(), hv.second.c_str());
+
+          const std::string drmValue = BuildWidevineDrmProperty(phpInfo.licenceUrl, phpInfo.addHeaders);
+          Logger::Log(LEVEL_DEBUG, "%s   DRM JSON -> [%s]", __FUNCTION__, drmValue.c_str());
           m_currentChannel.AddProperty("inputstream.adaptive.drm", drmValue);
           phpDrmSet = true;
         }
 
-        // 3) Save PHP headers for post-patch (applied after SetAllStreamProperties)
+        // 3) Save PHP headers for post-patch (applied after SetAllStreamProperties
+        //    into stream_headers + manifest_headers)
         phpAddHeaders = phpInfo.addHeaders;
         Logger::Log(LEVEL_DEBUG, "%s PHP addHeaders saved (%zu key(s)) for post-patch",
                     __FUNCTION__, phpAddHeaders.size());
@@ -393,7 +427,7 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
           Logger::Log(LEVEL_DEBUG, "%s   [%s] = [%s]",
                       __FUNCTION__, hv.first.c_str(), hv.second.c_str());
 
-        // 4) Force 1080p from first segment
+        // 4) Force highest quality from first segment
         m_currentChannel.AddProperty("inputstream.adaptive.chooser_bandwidth_max", "100000000");
         m_currentChannel.AddProperty("inputstream.adaptive.chooser_bandwidth_min", "8000000");
 

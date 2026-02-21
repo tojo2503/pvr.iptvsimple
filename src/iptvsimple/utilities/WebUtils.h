@@ -24,13 +24,20 @@ namespace iptvsimple
 
     /**
      * Result of a PHP-proxy resolution (302 redirect + optional VIP headers).
+     *
+     * x-vip-clearkey  -> ClearKey DRM  (KID:KEY pairs, semicolon-separated)
+     * x-vip-licence   -> Widevine DRM  (plain license server URL string)
+     * x-vip-addheader -> extra HTTP request headers (flat JSON object)
+     *
+     * clearKeys and licenceUrl are mutually exclusive per stream.
      */
     struct PhpRedirectInfo
     {
       std::string finalUrl;                          ///< MPD URL from Location header
-      std::map<std::string, std::string> clearKeys;  ///< KID(hex)->KEY(hex) pairs from x-vip-clearkey
-      std::map<std::string, std::string> addHeaders; ///< headers from x-vip-addheader
-      bool resolved = false;                         ///< true if a 302 was actually found
+      std::map<std::string, std::string> clearKeys;  ///< KID(hex)->KEY(hex) from x-vip-clearkey
+      std::string licenceUrl;                        ///< Widevine license server URL from x-vip-licence
+      std::map<std::string, std::string> addHeaders; ///< headers from x-vip-addheader (JSON)
+      bool resolved = false;                         ///< true if a 302 Location was found
     };
 
     class WebUtils
@@ -49,7 +56,7 @@ namespace iptvsimple
 
       /**
        * Call a PHP URL (or any dynamic URL), follow the 302 redirect and
-       * extract x-vip-clearkey / x-vip-addheader response headers.
+       * extract x-vip-clearkey / x-vip-licence / x-vip-addheader response headers.
        */
       static PhpRedirectInfo FetchPhpRedirectInfo(const std::string& phpUrl);
 

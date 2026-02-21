@@ -40,14 +40,11 @@ const std::string WebUtils::UrlEncode(const std::string& value)
 
   for (auto c : value)
   {
-    // Keep alphanumeric and other accepted characters intact
     if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
     {
       escaped << c;
       continue;
     }
-
-    // Any other characters are percent-encoded
     escaped << '%' << std::setw(2) << int(static_cast<unsigned char>(c));
   }
 
@@ -97,7 +94,6 @@ const std::string WebUtils::UrlDecode(const std::string& value)
 
 bool WebUtils::IsEncoded(const std::string& value)
 {
-  // Note this is not perfect as '+' symbols will mess this up, they should in general be avoided in preference of '%20'
   return UrlDecode(value) != value;
 }
 
@@ -144,7 +140,6 @@ std::string WebUtils::RedactUrl(const std::string& url)
   {
     std::string protocol = url.substr(0, url.find_first_of(":"));
     std::string fullPrefix = url.substr(url.find_first_of("@") + 1);
-
     redactedUrl = protocol + "://USERNAME:PASSWORD@" + fullPrefix;
   }
 
@@ -153,11 +148,9 @@ std::string WebUtils::RedactUrl(const std::string& url)
 
 bool WebUtils::Check(const std::string& strURL, int connectionTimeoutSecs, bool isLocalPath)
 {
-  // For local paths we only need to check existence of the file
   if ((isLocalPath || IsSpecialUrl(strURL)) && FileUtils::FileExists(strURL))
     return true;
 
-  // Otherwise it's remote
   kodi::vfs::CFile fileHandle;
   if (!fileHandle.CURLCreate(strURL))
   {
@@ -183,8 +176,8 @@ std::map<std::string, std::string> WebUtils::ConvertStringToHeaders(const std::s
   std::istringstream stream(input);
   std::string item;
 
-  const char delimiter = '&'; // Default delimiter
-  const char keyValueSeparator = ':'; // Default key-value separator
+  const char delimiter = '&';
+  const char keyValueSeparator = ':';
 
   while (std::getline(stream, item, delimiter))
   {
@@ -205,7 +198,6 @@ std::map<std::string, std::string> WebUtils::ConvertStringToHeaders(const std::s
 // ---------------------------------------------------------------------------
 std::string WebUtils::HexToBase64Url(const std::string& hex)
 {
-  // Decode hex -> bytes
   std::vector<unsigned char> bytes;
   bytes.reserve(hex.size() / 2);
   for (size_t i = 0; i + 1 < hex.size(); i += 2)
@@ -216,7 +208,6 @@ std::string WebUtils::HexToBase64Url(const std::string& hex)
     bytes.push_back(static_cast<unsigned char>(byte));
   }
 
-  // Base64 encode
   static const char* b64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   std::string result;
   result.reserve(((bytes.size() + 2) / 3) * 4);
@@ -233,13 +224,11 @@ std::string WebUtils::HexToBase64Url(const std::string& hex)
     result += (i + 2 < bytes.size()) ? b64chars[b & 0x3F] : '=';
   }
 
-  // Convert to Base64url: + -> -, / -> _, strip padding
   for (char& c : result)
   {
     if (c == '+') c = '-';
     else if (c == '/') c = '_';
   }
-  // Remove padding
   while (!result.empty() && result.back() == '=')
     result.pop_back();
 
@@ -362,11 +351,10 @@ std::map<std::string, std::string> WebUtils::ParseClearKeyHeader(const std::stri
 // ParseAddHeader: parse x-vip-addheader as a flat JSON object.
 //
 // Expected PHP format:
-//   {"Header-Name":"value","Another-Header":"value with \"quotes\" and commas, etc."}
+//   {"Header-Name":"value","Another-Header":"value with \"quotes\" and commas"}
 //
-// The old comma/equals format ("Key=Value,Key=Value") is no longer supported.
-// A hand-rolled parser is used so no additional JSON library dependency is needed.
-// All standard JSON string escape sequences are handled (\", \\, \/, \n, \r, \t).
+// Hand-rolled parser – no additional JSON library dependency.
+// All standard JSON string escape sequences are handled.
 // ---------------------------------------------------------------------------
 std::map<std::string, std::string> WebUtils::ParseAddHeader(const std::string& headerValue)
 {
@@ -378,37 +366,30 @@ std::map<std::string, std::string> WebUtils::ParseAddHeader(const std::string& h
   size_t i = 0;
   const size_t n = s.size();
 
-  // --- skip leading whitespace and locate opening '{' ---
   while (i < n && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
 
   if (i >= n || s[i] != '{')
   {
     Logger::Log(LEVEL_WARNING,
-                "%s x-vip-addheader does not start with '{' – expected JSON object, ignoring",
+                "%s x-vip-addheader does not start with '{' - expected JSON object, ignoring",
                 __func__);
     return headers;
   }
-  ++i; // consume '{'
-
-  // --- local helpers via lambdas ---
+  ++i;
 
   auto skipWs = [&]() {
     while (i < n && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
   };
 
-  // Read a JSON-encoded string.  Cursor must be positioned at the opening '"'.
-  // Returns true and fills `out` on success; returns false on parse error.
   auto readJsonString = [&](std::string& out) -> bool {
     skipWs();
     if (i >= n || s[i] != '"') return false;
-    ++i; // consume opening '"'
+    ++i;
     out.clear();
     while (i < n)
     {
       const char c = s[i++];
-      if (c == '"')
-        return true; // closing quote – done
-
+      if (c == '"') return true;
       if (c == '\\' && i < n)
       {
         const char esc = s[i++];
@@ -420,7 +401,7 @@ std::map<std::string, std::string> WebUtils::ParseAddHeader(const std::string& h
           case 'n':  out += '\n'; break;
           case 'r':  out += '\r'; break;
           case 't':  out += '\t'; break;
-          default:   out += esc;  break; // pass through unknown escapes
+          default:   out += esc;  break;
         }
       }
       else
@@ -428,17 +409,15 @@ std::map<std::string, std::string> WebUtils::ParseAddHeader(const std::string& h
         out += c;
       }
     }
-    return false; // unterminated string
+    return false;
   };
 
-  // --- main parse loop ---
   while (i < n)
   {
     skipWs();
     if (i >= n) break;
-    if (s[i] == '}') break; // end of JSON object
+    if (s[i] == '}') break;
 
-    // Read key
     std::string key;
     if (!readJsonString(key))
     {
@@ -447,38 +426,31 @@ std::map<std::string, std::string> WebUtils::ParseAddHeader(const std::string& h
       break;
     }
 
-    // Expect ':'
     skipWs();
     if (i >= n || s[i] != ':')
     {
-      Logger::Log(LEVEL_WARNING,
-                  "%s Expected ':' after key '%s' at position %zu, aborting",
+      Logger::Log(LEVEL_WARNING, "%s Expected ':' after key '%s' at position %zu, aborting",
                   __func__, key.c_str(), i);
       break;
     }
-    ++i; // consume ':'
+    ++i;
 
-    // Read value
     std::string value;
     if (!readJsonString(value))
     {
-      Logger::Log(LEVEL_WARNING,
-                  "%s Failed to read JSON value for key '%s' at position %zu, aborting",
+      Logger::Log(LEVEL_WARNING, "%s Failed to read JSON value for key '%s' at position %zu, aborting",
                   __func__, key.c_str(), i);
       break;
     }
 
-    Logger::Log(LEVEL_INFO, "%s addheader parsed: [%s] = [%s]",
-                __func__, key.c_str(), value.c_str());
+    Logger::Log(LEVEL_INFO, "%s addheader parsed: [%s] = [%s]", __func__, key.c_str(), value.c_str());
     headers[key] = value;
 
-    // Optional trailing comma before next pair
     skipWs();
     if (i < n && s[i] == ',') ++i;
   }
 
-  Logger::Log(LEVEL_INFO, "%s x-vip-addheader: %zu header(s) parsed",
-              __func__, headers.size());
+  Logger::Log(LEVEL_INFO, "%s x-vip-addheader: %zu header(s) parsed", __func__, headers.size());
   return headers;
 }
 
@@ -508,6 +480,7 @@ PhpRedirectInfo WebUtils::FetchPhpRedirectInfo(const std::string& phpUrl)
                 __func__, RedactUrl(phpUrl).c_str());
   }
 
+  // --- Location (302 redirect target = MPD URL) ---
   const std::string location =
       curlFile.GetPropertyValue(ADDON_FILE_PROPERTY_RESPONSE_HEADER, "location");
   if (!location.empty())
@@ -519,10 +492,10 @@ PhpRedirectInfo WebUtils::FetchPhpRedirectInfo(const std::string& phpUrl)
   }
   else
   {
-    Logger::Log(LEVEL_WARNING,
-                "%s No Location header in PHP response, using original URL", __func__);
+    Logger::Log(LEVEL_WARNING, "%s No Location header in PHP response, using original URL", __func__);
   }
 
+  // --- x-vip-clearkey: KID:KEY pairs (ClearKey DRM) ---
   const std::string clearKeyHdr =
       curlFile.GetPropertyValue(ADDON_FILE_PROPERTY_RESPONSE_HEADER, "x-vip-clearkey");
   if (!clearKeyHdr.empty())
@@ -536,6 +509,21 @@ PhpRedirectInfo WebUtils::FetchPhpRedirectInfo(const std::string& phpUrl)
     Logger::Log(LEVEL_INFO, "%s x-vip-clearkey header not present", __func__);
   }
 
+  // --- x-vip-licence: Widevine license server URL ---
+  const std::string licenceHdr =
+      curlFile.GetPropertyValue(ADDON_FILE_PROPERTY_RESPONSE_HEADER, "x-vip-licence");
+  if (!licenceHdr.empty())
+  {
+    info.licenceUrl = licenceHdr;
+    StringUtils::Trim(info.licenceUrl);
+    Logger::Log(LEVEL_INFO, "%s x-vip-licence: [%s]", __func__, info.licenceUrl.c_str());
+  }
+  else
+  {
+    Logger::Log(LEVEL_INFO, "%s x-vip-licence header not present", __func__);
+  }
+
+  // --- x-vip-addheader: extra request headers as flat JSON ---
   const std::string addHdr =
       curlFile.GetPropertyValue(ADDON_FILE_PROPERTY_RESPONSE_HEADER, "x-vip-addheader");
   if (!addHdr.empty())

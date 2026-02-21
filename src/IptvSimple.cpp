@@ -83,9 +83,7 @@ void IptvSimple::ConnectionEstablished()
 bool IptvSimple::Initialise()
 {
   std::lock_guard<std::mutex> lock(m_mutex);
-
   connectionManager->Start();
-
   return true;
 }
 
@@ -160,11 +158,9 @@ void IptvSimple::Process()
     if (m_running && m_reloadChannelsGroupsAndEPG)
     {
       std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-
       m_settings->ReloadAddonInstanceSettings();
       m_playlistLoader.ReloadPlayList();
       m_epg.ReloadEPG();
-
       m_reloadChannelsGroupsAndEPG = false;
       refreshTimer = 0;
     }
@@ -189,12 +185,9 @@ PVR_ERROR IptvSimple::GetProviders(kodi::addon::PVRProvidersResultSet& results)
     std::lock_guard<std::mutex> lock(m_mutex);
     m_providers.GetProviders(providers);
   }
-
   Logger::Log(LEVEL_DEBUG, "%s - providers available '%d'", __func__, providers.size());
-
   for (const auto& provider : providers)
     results.Add(provider);
-
   return PVR_ERROR_NO_ERROR;
 }
 
@@ -269,7 +262,7 @@ static std::string SerialiseStreamHeaders(const std::map<std::string, std::strin
 
 // ---------------------------------------------------------------------------
 // Helper: find a property by name in the PVRStreamProperty vector,
-// merge PHP headers into its value, replace it.  If not found, append it.
+// merge PHP headers into its value, replace it. If not found, append it.
 // ---------------------------------------------------------------------------
 static void PatchStreamPropertyHeaders(
     std::vector<kodi::addon::PVRStreamProperty>& properties,
@@ -280,7 +273,6 @@ static void PatchStreamPropertyHeaders(
   {
     if (it->GetName() == propName)
     {
-      // Merge: existing value wins as base, PHP headers overlay (PHP wins)
       auto merged = ParseStreamHeaders(it->GetValue());
       for (const auto& hv : phpHeaders)
         merged[hv.first] = hv.second;
@@ -293,7 +285,6 @@ static void PatchStreamPropertyHeaders(
       return;
     }
   }
-  // Property not present at all -> add it with PHP headers only
   const std::string newVal = SerialiseStreamHeaders(phpHeaders);
   Logger::Log(LEVEL_DEBUG,
               "PatchStreamPropertyHeaders [%s] (new) -> [%s]",
@@ -303,6 +294,9 @@ static void PatchStreamPropertyHeaders(
 
 // ---------------------------------------------------------------------------
 // Build inputstream.adaptive.drm JSON for ClearKey from hex KID/KEY pairs.
+//
+// ISA 22 format:
+//   {"org.w3.clearkey":{"license":{"keyids":{"KID_HEX":"KEY_HEX"}}}}
 // ---------------------------------------------------------------------------
 static std::string BuildClearKeyDrmProperty(
     const std::map<std::string, std::string>& hexKeyMap)
@@ -316,6 +310,17 @@ static std::string BuildClearKeyDrmProperty(
     first = false;
   }
   return "{\"org.w3.clearkey\":{\"license\":{\"keyids\":{" + keyidsJson + "}}}}";
+}
+
+// ---------------------------------------------------------------------------
+// Build inputstream.adaptive.drm JSON for Widevine from a license server URL.
+//
+// ISA 22 format:
+//   {"com.widevine.alpha":{"license":{"server_url":"https://..."}}}
+// ---------------------------------------------------------------------------
+static std::string BuildWidevineDrmProperty(const std::string& licenceUrl)
+{
+  return "{\"com.widevine.alpha\":{\"license\":{\"server_url\":\"" + licenceUrl + "\"}}}";
 }
 
 PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& channel, PVR_SOURCE source, std::vector<kodi::addon::PVRStreamProperty>& properties)
@@ -338,14 +343,14 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
     // -----------------------------------------------------------------------
     // PHP-proxy resolution
     //
-    // IMPORTANT: we do NOT set stream_headers/manifest_headers on
-    // m_currentChannel here.  WebStreamExtractor (called below) reads the
-    // pipe-encoded headers from the M3U stream URL and overwrites
-    // stream_headers on the channel object, so any pre-set value is lost.
+    // We do NOT set stream_headers/manifest_headers on m_currentChannel here.
+    // WebStreamExtractor (called below) reads pipe-encoded headers from the
+    // M3U URL and overwrites stream_headers on the channel object.
     //
-    // Instead we save the PHP-supplied headers in `phpAddHeaders` and apply
-    // them AFTER SetAllStreamProperties by patching the properties vector
-    // directly – at that point nothing can overwrite them anymore.
+    // Instead:
+    //  - DRM properties are set on m_currentChannel (not touched by extractor)
+    //  - phpAddHeaders are saved and applied AFTER SetAllStreamProperties by
+    //    patching the final properties vector directly.
     // -----------------------------------------------------------------------
     std::map<std::string, std::string> phpAddHeaders;
     bool phpDrmSet = false;
@@ -362,19 +367,27 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
         // 1) Replace stream URL with resolved MPD location
         streamURL = phpInfo.finalUrl;
 
-        // 2) ClearKey DRM
+        // 2a) ClearKey DRM (x-vip-clearkey)
         if (!phpInfo.clearKeys.empty())
         {
           const std::string drmValue = BuildClearKeyDrmProperty(phpInfo.clearKeys);
-          Logger::Log(LEVEL_INFO, "%s setting inputstream.adaptive.drm -> [%s]",
-                      __FUNCTION__, drmValue.c_str());
+          Logger::Log(LEVEL_INFO, "%s setting ClearKey DRM -> [%s]", __FUNCTION__, drmValue.c_str());
           m_currentChannel.AddProperty("inputstream.adaptive.drm", drmValue);
           phpDrmSet = true;
         }
 
-        // 3) Save PHP headers for post-processing (see below)
+        // 2b) Widevine DRM (x-vip-licence) – mutually exclusive with ClearKey
+        if (!phpInfo.licenceUrl.empty() && !phpDrmSet)
+        {
+          const std::string drmValue = BuildWidevineDrmProperty(phpInfo.licenceUrl);
+          Logger::Log(LEVEL_INFO, "%s setting Widevine DRM -> [%s]", __FUNCTION__, drmValue.c_str());
+          m_currentChannel.AddProperty("inputstream.adaptive.drm", drmValue);
+          phpDrmSet = true;
+        }
+
+        // 3) Save PHP headers for post-patch (applied after SetAllStreamProperties)
         phpAddHeaders = phpInfo.addHeaders;
-        Logger::Log(LEVEL_DEBUG, "%s PHP addHeaders saved (%zu key(s)) for post-patch:",
+        Logger::Log(LEVEL_DEBUG, "%s PHP addHeaders saved (%zu key(s)) for post-patch",
                     __FUNCTION__, phpAddHeaders.size());
         for (const auto& hv : phpAddHeaders)
           Logger::Log(LEVEL_DEBUG, "%s   [%s] = [%s]",
@@ -394,16 +407,13 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
     }
     // -----------------------------------------------------------------------
 
-    // Let WebStreamExtractor and SetAllStreamProperties run normally.
-    // WebStreamExtractor will set stream_headers from the M3U pipe-format URL.
-    // That is fine – we will patch on top of it immediately after.
     streamURL = StreamUtils::WebStreamExtractor(streamURL, m_currentChannel);
     StreamUtils::SetAllStreamProperties(properties, m_currentChannel, streamURL, catchupUrl.empty(), catchupProperties, m_settings);
 
     // -----------------------------------------------------------------------
     // Post-patch: merge PHP-supplied headers into stream_headers AND
-    // manifest_headers inside the final properties vector.
-    // This runs after SetAllStreamProperties so it cannot be overwritten.
+    // manifest_headers in the final properties vector.
+    // Runs after SetAllStreamProperties so nothing can overwrite them.
     // -----------------------------------------------------------------------
     if (!phpAddHeaders.empty())
     {
@@ -416,7 +426,6 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
       PatchStreamPropertyHeaders(properties, STREAM_HDR,   phpAddHeaders);
       PatchStreamPropertyHeaders(properties, MANIFEST_HDR, phpAddHeaders);
 
-      // DEBUG: confirm final values
       for (const auto& p : properties)
       {
         if (p.GetName() == STREAM_HDR || p.GetName() == MANIFEST_HDR)

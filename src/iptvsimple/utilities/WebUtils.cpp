@@ -348,19 +348,19 @@ std::map<std::string, std::string> WebUtils::ParseClearKeyHeader(const std::stri
 }
 
 // ---------------------------------------------------------------------------
-// ParseAddHeader: parse x-vip-addheader as a flat JSON object.
+// ParseJsonHeaders: parse a flat JSON object {"Key":"Value",...} into a map.
 //
-// Expected PHP format:
-//   {"Header-Name":"value","Another-Header":"value with \"quotes\" and commas"}
-//
-// Hand-rolled parser – no additional JSON library dependency.
+// Used for both x-vip-addheader and x-vip-l1.
+// headerName is only used for log messages.
 // All standard JSON string escape sequences are handled.
 // ---------------------------------------------------------------------------
-std::map<std::string, std::string> WebUtils::ParseAddHeader(const std::string& headerValue)
+std::map<std::string, std::string> WebUtils::ParseJsonHeaders(
+    const std::string& headerName,
+    const std::string& headerValue)
 {
   std::map<std::string, std::string> headers;
 
-  Logger::Log(LEVEL_INFO, "%s raw x-vip-addheader: [%s]", __func__, headerValue.c_str());
+  Logger::Log(LEVEL_INFO, "%s raw %s: [%s]", __func__, headerName.c_str(), headerValue.c_str());
 
   const std::string& s = headerValue;
   size_t i = 0;
@@ -371,8 +371,8 @@ std::map<std::string, std::string> WebUtils::ParseAddHeader(const std::string& h
   if (i >= n || s[i] != '{')
   {
     Logger::Log(LEVEL_WARNING,
-                "%s x-vip-addheader does not start with '{' - expected JSON object, ignoring",
-                __func__);
+                "%s %s does not start with '{' - expected JSON object, ignoring",
+                __func__, headerName.c_str());
     return headers;
   }
   ++i;
@@ -421,16 +421,16 @@ std::map<std::string, std::string> WebUtils::ParseAddHeader(const std::string& h
     std::string key;
     if (!readJsonString(key))
     {
-      Logger::Log(LEVEL_WARNING, "%s Failed to read JSON key at position %zu, aborting",
-                  __func__, i);
+      Logger::Log(LEVEL_WARNING, "%s [%s] Failed to read JSON key at position %zu, aborting",
+                  __func__, headerName.c_str(), i);
       break;
     }
 
     skipWs();
     if (i >= n || s[i] != ':')
     {
-      Logger::Log(LEVEL_WARNING, "%s Expected ':' after key '%s' at position %zu, aborting",
-                  __func__, key.c_str(), i);
+      Logger::Log(LEVEL_WARNING, "%s [%s] Expected ':' after key '%s' at position %zu, aborting",
+                  __func__, headerName.c_str(), key.c_str(), i);
       break;
     }
     ++i;
@@ -438,19 +438,21 @@ std::map<std::string, std::string> WebUtils::ParseAddHeader(const std::string& h
     std::string value;
     if (!readJsonString(value))
     {
-      Logger::Log(LEVEL_WARNING, "%s Failed to read JSON value for key '%s' at position %zu, aborting",
-                  __func__, key.c_str(), i);
+      Logger::Log(LEVEL_WARNING, "%s [%s] Failed to read JSON value for key '%s' at position %zu, aborting",
+                  __func__, headerName.c_str(), key.c_str(), i);
       break;
     }
 
-    Logger::Log(LEVEL_INFO, "%s addheader parsed: [%s] = [%s]", __func__, key.c_str(), value.c_str());
+    Logger::Log(LEVEL_INFO, "%s [%s] parsed: [%s] = [%s]",
+                __func__, headerName.c_str(), key.c_str(), value.c_str());
     headers[key] = value;
 
     skipWs();
     if (i < n && s[i] == ',') ++i;
   }
 
-  Logger::Log(LEVEL_INFO, "%s x-vip-addheader: %zu header(s) parsed", __func__, headers.size());
+  Logger::Log(LEVEL_INFO, "%s [%s]: %zu header(s) parsed",
+              __func__, headerName.c_str(), headers.size());
   return headers;
 }
 
@@ -509,28 +511,46 @@ PhpRedirectInfo WebUtils::FetchPhpRedirectInfo(const std::string& phpUrl)
     Logger::Log(LEVEL_INFO, "%s x-vip-clearkey header not present", __func__);
   }
 
-  // --- x-vip-licence: Widevine license server URL ---
-  const std::string licenceHdr =
-      curlFile.GetPropertyValue(ADDON_FILE_PROPERTY_RESPONSE_HEADER, "x-vip-licence");
-  if (!licenceHdr.empty())
+  // --- x-vip-licenceurl: Widevine license server URL ---
+  const std::string licenceUrlHdr =
+      curlFile.GetPropertyValue(ADDON_FILE_PROPERTY_RESPONSE_HEADER, "x-vip-licenceurl");
+  if (!licenceUrlHdr.empty())
   {
-    info.licenceUrl = licenceHdr;
+    info.licenceUrl = licenceUrlHdr;
     StringUtils::Trim(info.licenceUrl);
-    Logger::Log(LEVEL_INFO, "%s x-vip-licence: [%s]", __func__, info.licenceUrl.c_str());
+    Logger::Log(LEVEL_INFO, "%s x-vip-licenceurl: [%s]", __func__, info.licenceUrl.c_str());
   }
   else
   {
-    Logger::Log(LEVEL_INFO, "%s x-vip-licence header not present", __func__);
+    Logger::Log(LEVEL_INFO, "%s x-vip-licenceurl header not present", __func__);
   }
 
-  // --- x-vip-addheader: extra request headers as flat JSON ---
+  // --- x-vip-l1: headers sent ONLY to the Widevine license server ---
+  const std::string l1Hdr =
+      curlFile.GetPropertyValue(ADDON_FILE_PROPERTY_RESPONSE_HEADER, "x-vip-l1");
+  if (!l1Hdr.empty())
+  {
+    info.licenceHeaders = ParseJsonHeaders("x-vip-l1", l1Hdr);
+    Logger::Log(LEVEL_INFO, "%s x-vip-l1: %zu licence header(s) parsed",
+                __func__, info.licenceHeaders.size());
+  }
+  else
+  {
+    Logger::Log(LEVEL_INFO, "%s x-vip-l1 header not present", __func__);
+  }
+
+  // --- x-vip-addheader: extra headers for MPD + segment requests ---
   const std::string addHdr =
       curlFile.GetPropertyValue(ADDON_FILE_PROPERTY_RESPONSE_HEADER, "x-vip-addheader");
   if (!addHdr.empty())
   {
-    info.addHeaders = ParseAddHeader(addHdr);
+    info.addHeaders = ParseJsonHeaders("x-vip-addheader", addHdr);
     Logger::Log(LEVEL_INFO, "%s x-vip-addheader: %zu header(s) parsed",
                 __func__, info.addHeaders.size());
+  }
+  else
+  {
+    Logger::Log(LEVEL_INFO, "%s x-vip-addheader header not present", __func__);
   }
 
   return info;

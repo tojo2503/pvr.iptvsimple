@@ -25,19 +25,23 @@ namespace iptvsimple
     /**
      * Result of a PHP-proxy resolution (302 redirect + optional VIP headers).
      *
-     * x-vip-clearkey  -> ClearKey DRM  (KID:KEY pairs, semicolon-separated)
-     * x-vip-licence   -> Widevine DRM  (plain license server URL string)
-     * x-vip-addheader -> extra HTTP request headers (flat JSON object)
+     * x-vip-licenceurl  -> Widevine license server URL (plain string)
+     * x-vip-l1          -> Headers sent ONLY to the Widevine license server
+     *                      (flat JSON object, e.g. Authorization: Bearer ...)
+     * x-vip-addheader   -> Extra HTTP headers for MPD + segment requests
+     *                      (flat JSON object, feeds stream_headers + manifest_headers)
+     * x-vip-clearkey    -> ClearKey DRM KID:KEY pairs (semicolon-separated)
      *
      * clearKeys and licenceUrl are mutually exclusive per stream.
      */
     struct PhpRedirectInfo
     {
-      std::string finalUrl;                          ///< MPD URL from Location header
-      std::map<std::string, std::string> clearKeys;  ///< KID(hex)->KEY(hex) from x-vip-clearkey
-      std::string licenceUrl;                        ///< Widevine license server URL from x-vip-licence
-      std::map<std::string, std::string> addHeaders; ///< headers from x-vip-addheader (JSON)
-      bool resolved = false;                         ///< true if a 302 Location was found
+      std::string finalUrl;                            ///< MPD URL from Location header
+      std::map<std::string, std::string> clearKeys;    ///< KID(hex)->KEY(hex) from x-vip-clearkey
+      std::string licenceUrl;                          ///< Widevine license server URL from x-vip-licenceurl
+      std::map<std::string, std::string> licenceHeaders; ///< License-only headers from x-vip-l1 (JSON)
+      std::map<std::string, std::string> addHeaders;   ///< Stream/manifest headers from x-vip-addheader (JSON)
+      bool resolved = false;                           ///< true if a 302 Location was found
     };
 
     class WebUtils
@@ -55,21 +59,22 @@ namespace iptvsimple
       static std::map<std::string, std::string> ConvertStringToHeaders(const std::string& input);
 
       /**
-       * Call a PHP URL (or any dynamic URL), follow the 302 redirect and
-       * extract x-vip-clearkey / x-vip-licence / x-vip-addheader response headers.
+       * Call a PHP URL, follow the 302 redirect and extract
+       * x-vip-licenceurl / x-vip-l1 / x-vip-addheader / x-vip-clearkey
+       * response headers.
        */
       static PhpRedirectInfo FetchPhpRedirectInfo(const std::string& phpUrl);
 
       /**
        * Convert a 32-char lowercase hex string (16 bytes) to Base64url without padding.
-       * Used to build the inputstream.adaptive.drm JSON payload.
        */
       static std::string HexToBase64Url(const std::string& hex);
 
     private:
       static std::string Base64UrlToHex(const std::string& input);
       static std::map<std::string, std::string> ParseClearKeyHeader(const std::string& headerValue);
-      static std::map<std::string, std::string> ParseAddHeader(const std::string& headerValue);
+      static std::map<std::string, std::string> ParseJsonHeaders(const std::string& headerName,
+                                                                  const std::string& headerValue);
     };
   } // namespace utilities
 } // namespace iptvsimple

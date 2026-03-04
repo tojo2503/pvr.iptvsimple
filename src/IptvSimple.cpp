@@ -488,10 +488,6 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
           Logger::Log(LEVEL_DEBUG, "%s   [%s] = [%s]",
                       __FUNCTION__, hv.first.c_str(), hv.second.c_str());
 
-        // 4) Force highest quality from first segment
-        m_currentChannel.AddProperty("inputstream.adaptive.chooser_bandwidth_max", "100000000");
-        m_currentChannel.AddProperty("inputstream.adaptive.chooser_bandwidth_min", "8000000");
-
         Logger::Log(LEVEL_INFO, "%s PHP resolution complete -> final MPD: %s",
                     __FUNCTION__, WebUtils::RedactUrl(streamURL).c_str());
       }

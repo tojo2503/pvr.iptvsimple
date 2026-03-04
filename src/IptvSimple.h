@@ -99,7 +99,7 @@ private:
   // Maximum time (ms) to wait for StreamClosed() before starting a PHP
   // HTTP request.  Keeps the MediaCodec InstanceGuard from being held by
   // the previous player while we try to open the new decoder.
-  static constexpr int MAX_STREAM_CLOSE_WAIT_MS  = 1500;
+  static constexpr int MAX_STREAM_CLOSE_WAIT_MS  = 4000;
   static constexpr int STREAM_CLOSE_POLL_MS      = 25;
 
   std::shared_ptr<iptvsimple::InstanceSettings> m_settings;

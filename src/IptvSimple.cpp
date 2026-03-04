@@ -224,6 +224,19 @@ static bool IsPhpUrl(const std::string& url)
 }
 
 // ---------------------------------------------------------------------------
+// Helper: append ?_iptvcb=<ms> or &_iptvcb=<ms> to a URL so that
+// inputstream.adaptive treats every channel-open as a unique resource,
+// forcing a full manifest re-fetch and fresh DRM/decoder init.
+// ---------------------------------------------------------------------------
+static std::string AppendCacheBuster(const std::string& url)
+{
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now().time_since_epoch()).count();
+  const char sep = (url.find('?') == std::string::npos) ? '?' : '&';
+  return url + sep + "_iptvcb=" + std::to_string(ms);
+}
+
+// ---------------------------------------------------------------------------
 // Helper: parse "Key=Value&Key2=Value2" -> map
 // ---------------------------------------------------------------------------
 static std::map<std::string, std::string> ParseStreamHeaders(const std::string& hdrs)
@@ -387,14 +400,16 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
       if (phpInfo.resolved)
       {
         // Evict the stale StreamManager cache entry that was keyed on the
-        // original .php URL. After this point streamURL will be the resolved
-        // MPD/HLS URL, so the next StreamEntryLookup call will create a fresh
-        // entry keyed on that URL instead of accidentally re-using a cached
-        // entry from a previous channel on the same PHP endpoint.
+        // original .php URL.
         m_streamManager.RemoveEntry(streamURL);
 
-        // 1) Replace stream URL with resolved MPD location
-        streamURL = phpInfo.finalUrl;
+        // 1) Replace stream URL with resolved MPD location, then append a
+        //    millisecond cache-buster so inputstream.adaptive always treats
+        //    this as a new resource -> forces a clean DRM/decoder init on
+        //    every channel switch without needing a full player stop/start.
+        streamURL = AppendCacheBuster(phpInfo.finalUrl);
+        Logger::Log(LEVEL_DEBUG, "%s Cache-busted MPD URL: %s",
+                    __FUNCTION__, WebUtils::RedactUrl(streamURL).c_str());
 
         // 2a) ClearKey DRM (x-vip-clearkey)
         if (!phpInfo.clearKeys.empty())

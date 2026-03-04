@@ -20,6 +20,7 @@
 #include "iptvsimple/data/Channel.h"
 
 #include <atomic>
+#include <chrono>
 #include <mutex>
 #include <thread>
 
@@ -95,6 +96,12 @@ protected:
 private:
   static const int PROCESS_LOOP_WAIT_SECS = 2;
 
+  // Maximum time (ms) to wait for StreamClosed() before starting a PHP
+  // HTTP request.  Keeps the MediaCodec InstanceGuard from being held by
+  // the previous player while we try to open the new decoder.
+  static constexpr int MAX_STREAM_CLOSE_WAIT_MS  = 1500;
+  static constexpr int STREAM_CLOSE_POLL_MS      = 25;
+
   std::shared_ptr<iptvsimple::InstanceSettings> m_settings;
 
   iptvsimple::data::Channel m_currentChannel{m_settings};
@@ -112,4 +119,10 @@ private:
   std::thread m_thread;
   std::mutex m_mutex;
   std::atomic_bool m_reloadChannelsGroupsAndEPG{false};
+
+  // True while a stream is considered open (set in GetChannelStreamProperties,
+  // cleared in StreamClosed).  Used to gate the PHP HTTP request so that the
+  // previous MediaCodec session has been torn down before we start resolving
+  // the new URL.
+  std::atomic<bool> m_streamActive{false};
 };

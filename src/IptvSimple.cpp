@@ -16,6 +16,7 @@
 #include <ctime>
 #include <chrono>
 #include <sstream>
+#include <thread>
 
 #include <kodi/tools/StringUtils.h>
 
@@ -392,6 +393,48 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
 
     if (IsPhpUrl(streamURL))
     {
+      // ---------------------------------------------------------------------
+      // Wait for StreamClosed() to confirm the previous player has been torn
+      // down before issuing the PHP HTTP request.  This prevents the Android
+      // MediaCodec InstanceGuard from still being held by the old stream when
+      // the new codec tries to open, which would cause "InstanceGuard locked"
+      // -> black/encrypted video with audio only on cross-provider switches.
+      //
+      // Kodi calls GetChannelStreamProperties *before* calling StreamClosed
+      // on the previous stream.  For fast same-provider PHP responses the
+      // teardown completes before SetAllStreamProperties returns, but for
+      // slow cross-provider responses (~10s) it does not.  We poll
+      // m_streamActive (cleared by StreamClosed) for up to
+      // MAX_STREAM_CLOSE_WAIT_MS before proceeding.
+      // ---------------------------------------------------------------------
+      if (m_streamActive.load())
+      {
+        Logger::Log(LEVEL_INFO,
+                    "%s Previous stream still active, waiting up to %d ms for StreamClosed() before PHP request",
+                    __FUNCTION__, MAX_STREAM_CLOSE_WAIT_MS);
+
+        const auto deadline = std::chrono::steady_clock::now() +
+                              std::chrono::milliseconds(MAX_STREAM_CLOSE_WAIT_MS);
+        while (m_streamActive.load() &&
+               std::chrono::steady_clock::now() < deadline)
+        {
+          std::this_thread::sleep_for(std::chrono::milliseconds(STREAM_CLOSE_POLL_MS));
+        }
+
+        if (m_streamActive.load())
+          Logger::Log(LEVEL_WARNING,
+                      "%s StreamClosed() not received within %d ms, proceeding anyway",
+                      __FUNCTION__, MAX_STREAM_CLOSE_WAIT_MS);
+        else
+          Logger::Log(LEVEL_INFO,
+                      "%s StreamClosed() received, proceeding with PHP request",
+                      __FUNCTION__);
+      }
+
+      // Mark this channel-open as active *after* the wait so that the next
+      // switch can observe that a stream is now in progress.
+      m_streamActive.store(true);
+
       Logger::Log(LEVEL_INFO, "%s PHP stream URL detected, resolving: %s",
                   __FUNCTION__, WebUtils::RedactUrl(streamURL).c_str());
 
@@ -456,6 +499,11 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
       {
         Logger::Log(LEVEL_WARNING, "%s PHP resolution failed, using original URL", __FUNCTION__);
       }
+    }
+    else
+    {
+      // Non-PHP channel: mark stream active immediately (no wait needed).
+      m_streamActive.store(true);
     }
     // -----------------------------------------------------------------------
 
@@ -696,6 +744,11 @@ PVR_ERROR IptvSimple::GetSignalStatus(int channelUid, kodi::addon::PVRSignalStat
 PVR_ERROR IptvSimple::StreamClosed()
 {
   Logger::Log(LEVEL_INFO, "%s - Stream Closed", __FUNCTION__);
+  // Signal that the previous player/decoder session has been torn down.
+  // GetChannelStreamProperties waits on this flag (via m_streamActive) before
+  // issuing a PHP HTTP request, to ensure the MediaCodec InstanceGuard has
+  // been released before we attempt to open the new video codec.
+  m_streamActive.store(false);
   return PVR_ERROR_NO_ERROR;
 }
 

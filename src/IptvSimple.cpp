@@ -386,6 +386,13 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
 
       if (phpInfo.resolved)
       {
+        // Evict the stale StreamManager cache entry that was keyed on the
+        // original .php URL. After this point streamURL will be the resolved
+        // MPD/HLS URL, so the next StreamEntryLookup call will create a fresh
+        // entry keyed on that URL instead of accidentally re-using a cached
+        // entry from a previous channel on the same PHP endpoint.
+        m_streamManager.RemoveEntry(streamURL);
+
         // 1) Replace stream URL with resolved MPD location
         streamURL = phpInfo.finalUrl;
 

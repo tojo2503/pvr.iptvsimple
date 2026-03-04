@@ -21,6 +21,18 @@ void StreamManager::Clear()
   m_streamEntryCache.clear();
 }
 
+void StreamManager::RemoveEntry(const std::string& streamKey)
+{
+  std::lock_guard<std::mutex> lock(m_mutex);
+  auto it = m_streamEntryCache.find(streamKey);
+  if (it != m_streamEntryCache.end())
+  {
+    Logger::Log(LEVEL_DEBUG, "StreamManager::RemoveEntry - evicting stale cache entry for key: %s",
+                streamKey.c_str());
+    m_streamEntryCache.erase(it);
+  }
+}
+
 void StreamManager::AddUpdateStreamEntry(const std::string& streamKey, const StreamType& streamType, const std::string& mimeType)
 {
   std::shared_ptr<StreamEntry> foundStreamEntry = GetStreamEntry(streamKey);

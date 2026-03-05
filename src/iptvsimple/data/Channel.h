@@ -124,6 +124,7 @@ namespace iptvsimple
       const std::map<std::string, std::string>& GetProperties() const { return m_properties; }
       void SetProperties(std::map<std::string, std::string>& value) { m_properties = value; }
       void AddProperty(const std::string& prop, const std::string& value) { m_properties.insert({prop, value}); }
+      void SetProperty(const std::string& prop, const std::string& value) { m_properties[prop] = value; }
       std::string GetProperty(const std::string& propName) const;
       bool HasMimeType() const { return !GetProperty(PVR_STREAM_PROPERTY_MIMETYPE).empty(); }
       std::string GetMimeType() const { return GetProperty(PVR_STREAM_PROPERTY_MIMETYPE); }

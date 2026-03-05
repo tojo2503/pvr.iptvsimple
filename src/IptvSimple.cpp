@@ -361,6 +361,10 @@ static std::string BuildWidevineDrmProperty(
 
 PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& channel, PVR_SOURCE source, std::vector<kodi::addon::PVRStreamProperty>& properties)
 {
+  // Ensure no stale properties from a previous channel switch remain.
+  // Kodi may reuse the vector across PVR channel switches without clearing it.
+  properties.clear();
+
   if (GetChannel(channel, m_currentChannel))
   {
     std::string streamURL = m_currentChannel.GetStreamURL();
@@ -459,7 +463,7 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
         {
           const std::string drmValue = BuildClearKeyDrmProperty(phpInfo.clearKeys);
           Logger::Log(LEVEL_INFO, "%s setting ClearKey DRM -> [%s]", __FUNCTION__, drmValue.c_str());
-          m_currentChannel.AddProperty("inputstream.adaptive.drm", drmValue);
+          m_currentChannel.SetProperty("inputstream.adaptive.drm", drmValue);
           phpDrmSet = true;
         }
 
@@ -475,7 +479,7 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
 
           const std::string drmValue = BuildWidevineDrmProperty(phpInfo.licenceUrl, phpInfo.licenceHeaders);
           Logger::Log(LEVEL_DEBUG, "%s   DRM JSON -> [%s]", __FUNCTION__, drmValue.c_str());
-          m_currentChannel.AddProperty("inputstream.adaptive.drm", drmValue);
+          m_currentChannel.SetProperty("inputstream.adaptive.drm", drmValue);
           phpDrmSet = true;
         }
 
@@ -552,6 +556,13 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
                 __FUNCTION__,
                 catchupUrl.empty() ? "Stream" : "Catchup",
                 WebUtils::RedactUrl(streamURL).c_str());
+
+    // Dump all final properties so we can verify what ISA receives.
+    Logger::Log(LEVEL_INFO, "%s [FINAL] %zu properties for ISA:",
+                __FUNCTION__, properties.size());
+    for (const auto& p : properties)
+      Logger::Log(LEVEL_INFO, "%s [FINAL]   [%s] = [%s]",
+                  __FUNCTION__, p.GetName().c_str(), p.GetValue().c_str());
 
     return PVR_ERROR_NO_ERROR;
   }

@@ -307,6 +307,29 @@ static void PatchStreamPropertyHeaders(
 }
 
 // ---------------------------------------------------------------------------
+// Helper: escape a string for embedding inside a JSON "..." value.
+// Handles the characters that would break the JSON structure.
+// ---------------------------------------------------------------------------
+static std::string JsonEscape(const std::string& s)
+{
+  std::string out;
+  out.reserve(s.size() + 8);
+  for (const char c : s)
+  {
+    switch (c)
+    {
+      case '"':  out += "\\\""; break;
+      case '\\': out += "\\\\"; break;
+      case '\n': out += "\\n";  break;
+      case '\r': out += "\\r";  break;
+      case '\t': out += "\\t";  break;
+      default:   out += c;      break;
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Build inputstream.adaptive.drm JSON for ClearKey from hex KID/KEY pairs.
 //
 // ISA 22 format:
@@ -320,7 +343,7 @@ static std::string BuildClearKeyDrmProperty(
   for (const auto& kv : hexKeyMap)
   {
     if (!first) keyidsJson += ',';
-    keyidsJson += '"' + kv.first + "\":\"" + kv.second + '"';
+    keyidsJson += '"' + JsonEscape(kv.first) + "\":\"" + JsonEscape(kv.second) + '"';
     first = false;
   }
   return "{\"org.w3.clearkey\":{\"license\":{\"keyids\":{" + keyidsJson + "}}}}";
@@ -350,13 +373,13 @@ static std::string BuildWidevineDrmProperty(
     for (const auto& kv : licenceHeaders)
     {
       if (!first) reqHeadersJson += ',';
-      reqHeadersJson += '"' + kv.first + "\":\"" + kv.second + '"';
+      reqHeadersJson += '"' + JsonEscape(kv.first) + "\":\"" + JsonEscape(kv.second) + '"';
       first = false;
     }
     reqHeadersJson += '}';
   }
   return "{\"com.widevine.alpha\":{\"license\":{\"server_url\":\"" +
-         licenceUrl + '"' + reqHeadersJson + "}}}";
+         JsonEscape(licenceUrl) + '"' + reqHeadersJson + "}}}";
 }
 
 PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& channel, PVR_SOURCE source, std::vector<kodi::addon::PVRStreamProperty>& properties)

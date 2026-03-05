@@ -238,7 +238,11 @@ static std::string AppendCacheBuster(const std::string& url)
 }
 
 // ---------------------------------------------------------------------------
-// Helper: parse "Key=Value&Key2=Value2" -> map
+// Helper: parse "Key=UrlEncodedValue&Key2=UrlEncodedValue2" -> map
+//
+// Values are URL-decoded on read so that the internal map always holds the
+// raw (unencoded) header values.  This is the counterpart of
+// SerialiseStreamHeaders which URL-encodes values on write.
 // ---------------------------------------------------------------------------
 static std::map<std::string, std::string> ParseStreamHeaders(const std::string& hdrs)
 {
@@ -251,7 +255,7 @@ static std::map<std::string, std::string> ParseStreamHeaders(const std::string& 
     const size_t eq = item.find('=');
     if (eq == std::string::npos) continue;
     std::string key   = item.substr(0, eq);
-    std::string value = item.substr(eq + 1);
+    std::string value = WebUtils::UrlDecode(item.substr(eq + 1));
     kodi::tools::StringUtils::Trim(key);
     kodi::tools::StringUtils::Trim(value);
     if (!key.empty())
@@ -261,7 +265,11 @@ static std::map<std::string, std::string> ParseStreamHeaders(const std::string& 
 }
 
 // ---------------------------------------------------------------------------
-// Helper: serialise map -> "Key=Value&Key2=Value2"
+// Helper: serialise map -> "Key=UrlEncodedValue&Key2=UrlEncodedValue2"
+//
+// Header values are URL-encoded so that characters like '=', '&', '"' and
+// ',' that appear in values such as x-sky-signature do not break
+// inputstream.adaptive's Key=Value&Key2=Value2 parser.
 // ---------------------------------------------------------------------------
 static std::string SerialiseStreamHeaders(const std::map<std::string, std::string>& hdrs)
 {
@@ -269,7 +277,7 @@ static std::string SerialiseStreamHeaders(const std::map<std::string, std::strin
   for (const auto& kv : hdrs)
   {
     if (!out.empty()) out += '&';
-    out += kv.first + '=' + kv.second;
+    out += kv.first + '=' + WebUtils::UrlEncode(kv.second);
   }
   return out;
 }
@@ -535,6 +543,9 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
 
     // -----------------------------------------------------------------------
     // Post-patch: merge x-vip-addheader into stream_headers + manifest_headers.
+    // Values are URL-encoded by SerialiseStreamHeaders so that header values
+    // containing '=', '&', '"' or ',' (e.g. x-sky-signature) are passed
+    // through ISA's Key=Value&Key2=Value2 parser without corruption.
     // x-vip-l1 (licence-only headers) is NOT applied here.
     // -----------------------------------------------------------------------
     if (!phpAddHeaders.empty())

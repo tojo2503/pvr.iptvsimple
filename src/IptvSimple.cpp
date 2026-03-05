@@ -365,7 +365,11 @@ static std::string BuildClearKeyDrmProperty(
 //
 // ISA 22 format (with req_headers from x-vip-l1):
 //   {"com.widevine.alpha":{"license":{"server_url":"https://...",
-//     "req_headers":{"Authorization":"Bearer ..."}}}}
+//     "req_headers":"Key=UrlEncodedValue&Key2=UrlEncodedValue2"}}}
+//
+// IMPORTANT: req_headers must be a flat URL-encoded STRING, not a JSON object.
+// ISA 22 parses it as Key=UrlEncodedValue&Key2=UrlEncodedValue2 internally.
+// Using a JSON object here causes ISA to silently ignore the headers.
 //
 // licenceHeaders come exclusively from x-vip-l1 - NOT from x-vip-addheader.
 // ---------------------------------------------------------------------------
@@ -376,15 +380,18 @@ static std::string BuildWidevineDrmProperty(
   std::string reqHeadersJson;
   if (!licenceHeaders.empty())
   {
-    reqHeadersJson = ",\"req_headers\":{";
+    // Build URL-encoded Key=Value&Key2=Value2 string, then embed as JSON string value
+    std::string headersStr;
     bool first = true;
     for (const auto& kv : licenceHeaders)
     {
-      if (!first) reqHeadersJson += ',';
-      reqHeadersJson += '"' + JsonEscape(kv.first) + "\":\"" + JsonEscape(kv.second) + '"';
+      if (!first) headersStr += '&';
+      headersStr += WebUtils::UrlEncode(kv.first) + '=' + WebUtils::UrlEncode(kv.second);
       first = false;
     }
-    reqHeadersJson += '}';
+    // headersStr itself does not need JsonEscape since UrlEncode produces only
+    // alnum, '-', '_', '.', '~', '%' -- none of which need JSON escaping.
+    reqHeadersJson = ",\"req_headers\":\"" + headersStr + '"';
   }
   return "{\"com.widevine.alpha\":{\"license\":{\"server_url\":\"" +
          JsonEscape(licenceUrl) + '"' + reqHeadersJson + "}}}";

@@ -180,6 +180,8 @@ namespace iptvsimple
     const std::string& GetDefaultMimeType() const { return m_defaultMimeType; }
     int GetConnectioncCheckTimeoutSecs() const { return m_connectioncCheckTimeoutSecs; }
     int GetConnectioncCheckIntervalSecs() const { return m_connectioncCheckIntervalSecs; }
+    int GetPhpResolverConnectionTimeoutSecs() const { return m_phpResolverConnectionTimeoutSecs; }
+    int GetPhpStreamCloseWaitMs() const { return m_phpStreamCloseWaitSecs * 1000; }
 
     const std::string& GetTvgUrl() const { return m_tvgUrl; }
     void SetTvgUrl(const std::string& tvgUrl) { m_tvgUrl = tvgUrl; }
@@ -344,6 +346,12 @@ namespace iptvsimple
     std::string m_defaultMimeType;
     int m_connectioncCheckTimeoutSecs = DEFAULT_CONNECTION_CHECK_TIMEOUT_SECS;
     int m_connectioncCheckIntervalSecs = DEFAULT_CONNECTION_CHECK_INTERVAL_SECS;
+
+    // PHP-proxy resolver
+    int m_phpResolverConnectionTimeoutSecs = 10;
+    // Seconds to wait for the previous Kodi stream to close before kicking off
+    // a PHP HTTP request.  0 disables the wait entirely.
+    int m_phpStreamCloseWaitSecs = 8;
 
     std::vector<std::string> m_customTVChannelGroupNameList;
     std::vector<std::string> m_customRadioChannelGroupNameList;

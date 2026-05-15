@@ -447,16 +447,40 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
       // teardown completes before SetAllStreamProperties returns, but for
       // slow cross-provider responses (~10s) it does not.  We poll
       // m_streamActive (cleared by StreamClosed) for up to
-      // MAX_STREAM_CLOSE_WAIT_MS before proceeding.
+      // phpStreamCloseWait seconds before proceeding.
+      //
+      // Watchdog: if m_streamActive has been true for longer than
+      // STREAM_ACTIVE_WATCHDOG_MS, Kodi presumably never fired StreamClosed
+      // for the previous stream (open failed, crashed, etc.).  Force-clear
+      // the flag so we don't burn the wait timeout pointlessly on every
+      // future switch.
       // ---------------------------------------------------------------------
+      const int streamCloseWaitMs = m_settings->GetPhpStreamCloseWaitMs();
+
       if (m_streamActive.load())
+      {
+        const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        const int64_t sinceMs = m_streamActiveSinceMs.load();
+        const int64_t activeForMs = (sinceMs > 0) ? (nowMs - sinceMs) : 0;
+
+        if (activeForMs > STREAM_ACTIVE_WATCHDOG_MS)
+        {
+          Logger::Log(LEVEL_WARNING,
+                      "%s Stream marked active for %lld ms without StreamClosed() - assuming stale, force-clearing flag",
+                      __FUNCTION__, static_cast<long long>(activeForMs));
+          m_streamActive.store(false);
+        }
+      }
+
+      if (m_streamActive.load() && streamCloseWaitMs > 0)
       {
         Logger::Log(LEVEL_INFO,
                     "%s Previous stream still active, waiting up to %d ms for StreamClosed() before PHP request",
-                    __FUNCTION__, MAX_STREAM_CLOSE_WAIT_MS);
+                    __FUNCTION__, streamCloseWaitMs);
 
         const auto deadline = std::chrono::steady_clock::now() +
-                              std::chrono::milliseconds(MAX_STREAM_CLOSE_WAIT_MS);
+                              std::chrono::milliseconds(streamCloseWaitMs);
         while (m_streamActive.load() &&
                std::chrono::steady_clock::now() < deadline)
         {
@@ -466,7 +490,7 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
         if (m_streamActive.load())
           Logger::Log(LEVEL_WARNING,
                       "%s StreamClosed() not received within %d ms, proceeding anyway",
-                      __FUNCTION__, MAX_STREAM_CLOSE_WAIT_MS);
+                      __FUNCTION__, streamCloseWaitMs);
         else
           Logger::Log(LEVEL_INFO,
                       "%s StreamClosed() received, proceeding with PHP request",
@@ -474,13 +498,18 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
       }
 
       // Mark this channel-open as active *after* the wait so that the next
-      // switch can observe that a stream is now in progress.
+      // switch can observe that a stream is now in progress.  Also record
+      // the timestamp for the watchdog above.
+      const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now().time_since_epoch()).count();
+      m_streamActiveSinceMs.store(nowMs);
       m_streamActive.store(true);
 
       Logger::Log(LEVEL_INFO, "%s PHP stream URL detected, resolving: %s",
                   __FUNCTION__, WebUtils::RedactUrl(streamURL).c_str());
 
-      const PhpRedirectInfo phpInfo = WebUtils::FetchPhpRedirectInfo(streamURL);
+      const PhpRedirectInfo phpInfo =
+          WebUtils::FetchPhpRedirectInfo(streamURL, m_settings->GetPhpResolverConnectionTimeoutSecs());
 
       if (phpInfo.resolved)
       {
@@ -539,6 +568,9 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
     else
     {
       // Non-PHP channel: mark stream active immediately (no wait needed).
+      const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now().time_since_epoch()).count();
+      m_streamActiveSinceMs.store(nowMs);
       m_streamActive.store(true);
     }
     // -----------------------------------------------------------------------
@@ -795,6 +827,7 @@ PVR_ERROR IptvSimple::StreamClosed()
   // issuing a PHP HTTP request, to ensure the MediaCodec InstanceGuard has
   // been released before we attempt to open the new video codec.
   m_streamActive.store(false);
+  m_streamActiveSinceMs.store(0);
   return PVR_ERROR_NO_ERROR;
 }
 

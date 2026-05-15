@@ -158,6 +158,8 @@ void InstanceSettings::ReadSettings()
   m_instance.CheckInstanceSettingString("defaultMimeType", m_defaultMimeType);
   m_instance.CheckInstanceSettingInt("connectionchecktimeout", m_connectioncCheckTimeoutSecs);
   m_instance.CheckInstanceSettingInt("connectioncheckinterval", m_connectioncCheckIntervalSecs);
+  m_instance.CheckInstanceSettingInt("phpResolverConnectionTimeout", m_phpResolverConnectionTimeoutSecs);
+  m_instance.CheckInstanceSettingInt("phpStreamCloseWait", m_phpStreamCloseWaitSecs);
 }
 
 void InstanceSettings::ReloadAddonInstanceSettings()
@@ -200,6 +202,10 @@ ADDON_STATUS InstanceSettings::SetSetting(const std::string& settingName, const 
     return SetSetting<int, ADDON_STATUS>(settingName, settingValue, m_connectioncCheckTimeoutSecs, ADDON_STATUS_OK, ADDON_STATUS_OK);
   else if (settingName == "connectioncheckinterval")
     return SetSetting<int, ADDON_STATUS>(settingName, settingValue, m_connectioncCheckIntervalSecs, ADDON_STATUS_OK, ADDON_STATUS_OK);
+  else if (settingName == "phpResolverConnectionTimeout")
+    return SetSetting<int, ADDON_STATUS>(settingName, settingValue, m_phpResolverConnectionTimeoutSecs, ADDON_STATUS_OK, ADDON_STATUS_OK);
+  else if (settingName == "phpStreamCloseWait")
+    return SetSetting<int, ADDON_STATUS>(settingName, settingValue, m_phpStreamCloseWaitSecs, ADDON_STATUS_OK, ADDON_STATUS_OK);
   else if (settingName == "defaultProviderName")
     return SetStringSetting<ADDON_STATUS>(settingName, settingValue, m_defaultProviderName, ADDON_STATUS_OK, ADDON_STATUS_OK);
   else if (settingName == "enableProviderMappings")

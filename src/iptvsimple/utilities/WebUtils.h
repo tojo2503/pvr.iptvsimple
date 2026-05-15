@@ -62,8 +62,11 @@ namespace iptvsimple
        * Call a PHP URL, follow the 302 redirect and extract
        * x-vip-licenceurl / x-vip-l1 / x-vip-addheader / x-vip-clearkey
        * response headers.
+       *
+       * @param connectionTimeoutSecs CURL connection-timeout (seconds, default 10).
        */
-      static PhpRedirectInfo FetchPhpRedirectInfo(const std::string& phpUrl);
+      static PhpRedirectInfo FetchPhpRedirectInfo(const std::string& phpUrl,
+                                                  int connectionTimeoutSecs = 10);
 
       /**
        * Convert a 32-char lowercase hex string (16 bytes) to Base64url without padding.

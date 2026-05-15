@@ -95,11 +95,18 @@ protected:
 private:
   static const int PROCESS_LOOP_WAIT_SECS = 2;
 
-  // Maximum time (ms) to wait for StreamClosed() before starting a PHP
-  // HTTP request.  Keeps the MediaCodec InstanceGuard from being held by
-  // the previous player while we try to open the new decoder.
-  static constexpr int MAX_STREAM_CLOSE_WAIT_MS  = 8000;
-  static constexpr int STREAM_CLOSE_POLL_MS      = 25;
+  // Polling granularity (ms) while waiting for StreamClosed().  Not exposed
+  // as a setting — pure tuning constant.
+  static constexpr int STREAM_CLOSE_POLL_MS = 25;
+
+  // Watchdog (ms): if m_streamActive has been true for longer than this
+  // without a StreamClosed() callback, the previous stream is considered
+  // dead and the flag is force-cleared on the next channel switch so we
+  // don't burn the StreamClosed-wait timeout pointlessly.  This handles
+  // the case where Kodi failed to open the new stream (e.g. PHP returned
+  // bad data) and therefore never fired StreamClosed.  Generous default
+  // — a real stream session in any UX-acceptable case is well under this.
+  static constexpr int STREAM_ACTIVE_WATCHDOG_MS = 30000;
 
   std::shared_ptr<iptvsimple::InstanceSettings> m_settings;
 
@@ -123,4 +130,10 @@ private:
   // previous MediaCodec session has been torn down before we start resolving
   // the new URL.
   std::atomic<bool> m_streamActive{false};
+
+  // Milliseconds-since-steady-clock-epoch when m_streamActive was last set
+  // to true.  Used by the watchdog above to detect a stuck flag (Kodi never
+  // fired StreamClosed for the previous stream).  Stored as int64_t so that
+  // std::atomic is guaranteed lock-free on all targets.
+  std::atomic<int64_t> m_streamActiveSinceMs{0};
 };

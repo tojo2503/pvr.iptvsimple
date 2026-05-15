@@ -1130,3 +1130,23 @@ msgstr ""
 msgctxt "#30806"
 msgid "Force the full playlist to be media, regardless of what tags are present.  Since the introduction of multiple instances for PVR add-ons this option can be useful."
 msgstr ""
+
+#. label: General Settings - phpResolverConnectionTimeout
+msgctxt "#30900"
+msgid "PHP resolver connection timeout (seconds)"
+msgstr ""
+
+#. help: General Settings - phpResolverConnectionTimeout
+msgctxt "#30901"
+msgid "How long to wait for a PHP-proxy channel to return a 302 redirect before giving up.  Slow networks may need a higher value; low values fail faster on dead channels."
+msgstr ""
+
+#. label: General Settings - phpStreamCloseWait
+msgctxt "#30902"
+msgid "PHP wait for previous stream close (seconds)"
+msgstr ""
+
+#. help: General Settings - phpStreamCloseWait
+msgctxt "#30903"
+msgid "When switching between PHP-proxy channels, how long to wait for the previous Kodi stream to fully close before kicking off the new PHP request.  Prevents Android MediaCodec InstanceGuard contention on slow devices.  0 disables the wait entirely."
+msgstr ""

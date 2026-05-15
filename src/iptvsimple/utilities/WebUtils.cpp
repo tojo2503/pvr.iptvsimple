@@ -456,7 +456,7 @@ std::map<std::string, std::string> WebUtils::ParseJsonHeaders(
   return headers;
 }
 
-PhpRedirectInfo WebUtils::FetchPhpRedirectInfo(const std::string& phpUrl)
+PhpRedirectInfo WebUtils::FetchPhpRedirectInfo(const std::string& phpUrl, int connectionTimeoutSecs)
 {
   PhpRedirectInfo info;
   info.finalUrl = phpUrl;
@@ -472,8 +472,9 @@ PhpRedirectInfo WebUtils::FetchPhpRedirectInfo(const std::string& phpUrl)
     return info;
   }
 
+  if (connectionTimeoutSecs < 1) connectionTimeoutSecs = 1;
   curlFile.CURLAddOption(ADDON_CURL_OPTION_PROTOCOL, "redirect-limit", "0");
-  curlFile.CURLAddOption(ADDON_CURL_OPTION_PROTOCOL, "connection-timeout", "10");
+  curlFile.CURLAddOption(ADDON_CURL_OPTION_PROTOCOL, "connection-timeout", std::to_string(connectionTimeoutSecs));
   curlFile.CURLAddOption(ADDON_CURL_OPTION_PROTOCOL, "seekable", "0");
 
   if (!curlFile.CURLOpen(ADDON_READ_NO_CACHE))

@@ -238,12 +238,11 @@ static std::string AppendCacheBuster(const std::string& url)
 }
 
 // ---------------------------------------------------------------------------
-// Helper: parse URL-encoded "Key=Value&Key2=Value2" -> map.
+// Helper: parse "Key=UrlEncodedValue&Key2=UrlEncodedValue2" -> map
 //
-// ISA stores stream_headers / manifest_headers as a URL-encoded query string,
-// so values may contain "%26" for '&' or "%3D" for '=' (e.g. Base64 padding
-// in a Bearer token).  We split on the literal delimiters first and URL-decode
-// each piece afterwards.  Inputs that aren't URL-encoded survive unchanged.
+// Values are URL-decoded on read so that the internal map always holds the
+// raw (unencoded) header values.  This is the counterpart of
+// SerialiseStreamHeaders which URL-encodes values on write.
 // ---------------------------------------------------------------------------
 static std::map<std::string, std::string> ParseStreamHeaders(const std::string& hdrs)
 {
@@ -255,7 +254,7 @@ static std::map<std::string, std::string> ParseStreamHeaders(const std::string& 
   {
     const size_t eq = item.find('=');
     if (eq == std::string::npos) continue;
-    std::string key   = WebUtils::UrlDecode(item.substr(0, eq));
+    std::string key   = item.substr(0, eq);
     std::string value = WebUtils::UrlDecode(item.substr(eq + 1));
     kodi::tools::StringUtils::Trim(key);
     kodi::tools::StringUtils::Trim(value);
@@ -266,10 +265,11 @@ static std::map<std::string, std::string> ParseStreamHeaders(const std::string& 
 }
 
 // ---------------------------------------------------------------------------
-// Helper: serialise map -> URL-encoded "Key=Value&Key2=Value2".
+// Helper: serialise map -> "Key=UrlEncodedValue&Key2=UrlEncodedValue2"
 //
-// Values are URL-encoded so that literal '=' (Base64 padding) and '&' in
-// header values don't break the query-string structure that ISA expects.
+// Header values are URL-encoded so that characters like '=', '&', '"' and
+// ',' that appear in values such as x-sky-signature do not break
+// inputstream.adaptive's Key=Value&Key2=Value2 parser.
 // ---------------------------------------------------------------------------
 static std::string SerialiseStreamHeaders(const std::map<std::string, std::string>& hdrs)
 {
@@ -277,7 +277,7 @@ static std::string SerialiseStreamHeaders(const std::map<std::string, std::strin
   for (const auto& kv : hdrs)
   {
     if (!out.empty()) out += '&';
-    out += WebUtils::UrlEncode(kv.first) + '=' + WebUtils::UrlEncode(kv.second);
+    out += kv.first + '=' + WebUtils::UrlEncode(kv.second);
   }
   return out;
 }
@@ -365,7 +365,11 @@ static std::string BuildClearKeyDrmProperty(
 //
 // ISA 22 format (with req_headers from x-vip-l1):
 //   {"com.widevine.alpha":{"license":{"server_url":"https://...",
-//     "req_headers":{"Authorization":"Bearer ..."}}}}
+//     "req_headers":"Key=UrlEncodedValue&Key2=UrlEncodedValue2"}}}
+//
+// IMPORTANT: req_headers must be a flat URL-encoded STRING, not a JSON object.
+// ISA 22 parses it as Key=UrlEncodedValue&Key2=UrlEncodedValue2 internally.
+// Using a JSON object here causes ISA to silently ignore the headers.
 //
 // licenceHeaders come exclusively from x-vip-l1 - NOT from x-vip-addheader.
 // ---------------------------------------------------------------------------
@@ -376,15 +380,18 @@ static std::string BuildWidevineDrmProperty(
   std::string reqHeadersJson;
   if (!licenceHeaders.empty())
   {
-    reqHeadersJson = ",\"req_headers\":{";
+    // Build URL-encoded Key=Value&Key2=Value2 string, then embed as JSON string value
+    std::string headersStr;
     bool first = true;
     for (const auto& kv : licenceHeaders)
     {
-      if (!first) reqHeadersJson += ',';
-      reqHeadersJson += '"' + JsonEscape(kv.first) + "\":\"" + JsonEscape(kv.second) + '"';
+      if (!first) headersStr += '&';
+      headersStr += WebUtils::UrlEncode(kv.first) + '=' + WebUtils::UrlEncode(kv.second);
       first = false;
     }
-    reqHeadersJson += '}';
+    // headersStr itself does not need JsonEscape since UrlEncode produces only
+    // alnum, '-', '_', '.', '~', '%' -- none of which need JSON escaping.
+    reqHeadersJson = ",\"req_headers\":\"" + headersStr + '"';
   }
   return "{\"com.widevine.alpha\":{\"license\":{\"server_url\":\"" +
          JsonEscape(licenceUrl) + '"' + reqHeadersJson + "}}}";
@@ -541,6 +548,9 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
 
     // -----------------------------------------------------------------------
     // Post-patch: merge x-vip-addheader into stream_headers + manifest_headers.
+    // Values are URL-encoded by SerialiseStreamHeaders so that header values
+    // containing '=', '&', '"' or ',' (e.g. x-sky-signature) are passed
+    // through ISA's Key=Value&Key2=Value2 parser without corruption.
     // x-vip-l1 (licence-only headers) is NOT applied here.
     // -----------------------------------------------------------------------
     if (!phpAddHeaders.empty())

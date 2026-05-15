@@ -238,7 +238,12 @@ static std::string AppendCacheBuster(const std::string& url)
 }
 
 // ---------------------------------------------------------------------------
-// Helper: parse "Key=Value&Key2=Value2" -> map
+// Helper: parse URL-encoded "Key=Value&Key2=Value2" -> map.
+//
+// ISA stores stream_headers / manifest_headers as a URL-encoded query string,
+// so values may contain "%26" for '&' or "%3D" for '=' (e.g. Base64 padding
+// in a Bearer token).  We split on the literal delimiters first and URL-decode
+// each piece afterwards.  Inputs that aren't URL-encoded survive unchanged.
 // ---------------------------------------------------------------------------
 static std::map<std::string, std::string> ParseStreamHeaders(const std::string& hdrs)
 {
@@ -250,8 +255,8 @@ static std::map<std::string, std::string> ParseStreamHeaders(const std::string& 
   {
     const size_t eq = item.find('=');
     if (eq == std::string::npos) continue;
-    std::string key   = item.substr(0, eq);
-    std::string value = item.substr(eq + 1);
+    std::string key   = WebUtils::UrlDecode(item.substr(0, eq));
+    std::string value = WebUtils::UrlDecode(item.substr(eq + 1));
     kodi::tools::StringUtils::Trim(key);
     kodi::tools::StringUtils::Trim(value);
     if (!key.empty())
@@ -261,7 +266,10 @@ static std::map<std::string, std::string> ParseStreamHeaders(const std::string& 
 }
 
 // ---------------------------------------------------------------------------
-// Helper: serialise map -> "Key=Value&Key2=Value2"
+// Helper: serialise map -> URL-encoded "Key=Value&Key2=Value2".
+//
+// Values are URL-encoded so that literal '=' (Base64 padding) and '&' in
+// header values don't break the query-string structure that ISA expects.
 // ---------------------------------------------------------------------------
 static std::string SerialiseStreamHeaders(const std::map<std::string, std::string>& hdrs)
 {
@@ -269,7 +277,7 @@ static std::string SerialiseStreamHeaders(const std::map<std::string, std::strin
   for (const auto& kv : hdrs)
   {
     if (!out.empty()) out += '&';
-    out += kv.first + '=' + kv.second;
+    out += WebUtils::UrlEncode(kv.first) + '=' + WebUtils::UrlEncode(kv.second);
   }
   return out;
 }
@@ -469,10 +477,6 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
 
       if (phpInfo.resolved)
       {
-        // Evict the stale StreamManager cache entry that was keyed on the
-        // original .php URL.
-        m_streamManager.RemoveEntry(streamURL);
-
         // 1) Replace stream URL with resolved MPD location, then append a
         //    millisecond cache-buster so inputstream.adaptive always treats
         //    this as a new resource -> forces a clean DRM/decoder init on
@@ -485,7 +489,9 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
         if (!phpInfo.clearKeys.empty())
         {
           const std::string drmValue = BuildClearKeyDrmProperty(phpInfo.clearKeys);
-          Logger::Log(LEVEL_INFO, "%s setting ClearKey DRM -> [%s]", __FUNCTION__, drmValue.c_str());
+          Logger::Log(LEVEL_INFO, "%s setting ClearKey DRM (%zu key(s))",
+                      __FUNCTION__, phpInfo.clearKeys.size());
+          Logger::Log(LEVEL_DEBUG, "%s ClearKey DRM JSON -> [%s]", __FUNCTION__, drmValue.c_str());
           m_currentChannel.SetProperty("inputstream.adaptive.drm", drmValue);
           phpDrmSet = true;
         }
@@ -495,7 +501,7 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
         if (!phpInfo.licenceUrl.empty() && !phpDrmSet)
         {
           Logger::Log(LEVEL_INFO, "%s setting Widevine DRM, server_url=[%s], %zu x-vip-l1 header(s)",
-                      __FUNCTION__, phpInfo.licenceUrl.c_str(), phpInfo.licenceHeaders.size());
+                      __FUNCTION__, WebUtils::RedactUrl(phpInfo.licenceUrl).c_str(), phpInfo.licenceHeaders.size());
           for (const auto& hv : phpInfo.licenceHeaders)
             Logger::Log(LEVEL_DEBUG, "%s   Widevine req_header [%s] = [%s]",
                         __FUNCTION__, hv.first.c_str(), hv.second.c_str());
@@ -581,10 +587,10 @@ PVR_ERROR IptvSimple::GetChannelStreamProperties(const kodi::addon::PVRChannel& 
                 WebUtils::RedactUrl(streamURL).c_str());
 
     // Dump all final properties so we can verify what ISA receives.
-    Logger::Log(LEVEL_INFO, "%s [FINAL] %zu properties for ISA:",
+    Logger::Log(LEVEL_DEBUG, "%s [FINAL] %zu properties for ISA:",
                 __FUNCTION__, properties.size());
     for (const auto& p : properties)
-      Logger::Log(LEVEL_INFO, "%s [FINAL]   [%s] = [%s]",
+      Logger::Log(LEVEL_DEBUG, "%s [FINAL]   [%s] = [%s]",
                   __FUNCTION__, p.GetName().c_str(), p.GetValue().c_str());
 
     return PVR_ERROR_NO_ERROR;

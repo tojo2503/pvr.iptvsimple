@@ -23,7 +23,6 @@ namespace iptvsimple
 
     StreamType StreamTypeLookup(const data::Channel& channel, const std::string& streamTestUrl, const std::string& streamKey);
     void Clear();
-    void RemoveEntry(const std::string& streamKey);
 
   private:
     void AddUpdateStreamEntry(const std::string& streamKey, const StreamType& streamType, const std::string& mimeType);

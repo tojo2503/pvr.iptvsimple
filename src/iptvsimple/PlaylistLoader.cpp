@@ -83,54 +83,6 @@ bool GetOverrideRealTime(std::string& line)
 // Returns the converted string, or the original value unchanged when the
 // format is not recognised.
 
-static std::string Base64UrlToHex(const std::string& b64url)
-{
-  // Restore standard Base64 alphabet and padding
-  std::string b64 = b64url;
-  for (char& c : b64)
-  {
-    if (c == '-') c = '+';
-    else if (c == '_') c = '/';
-  }
-  // Add padding
-  while (b64.size() % 4 != 0)
-    b64 += '=';
-
-  // Decode Base64
-  static const std::string base64Chars =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-  std::vector<uint8_t> bytes;
-  bytes.reserve((b64.size() / 4) * 3);
-
-  uint32_t val = 0;
-  int valb = -8;
-  for (unsigned char c : b64)
-  {
-    if (c == '=') break;
-    size_t idx = base64Chars.find(c);
-    if (idx == std::string::npos) continue;
-    val = (val << 6) | static_cast<uint32_t>(idx);
-    valb += 6;
-    if (valb >= 0)
-    {
-      bytes.push_back(static_cast<uint8_t>((val >> valb) & 0xFF));
-      valb -= 8;
-    }
-  }
-
-  // Convert bytes to lowercase hex string
-  static const char hexChars[] = "0123456789abcdef";
-  std::string hex;
-  hex.reserve(bytes.size() * 2);
-  for (uint8_t b : bytes)
-  {
-    hex += hexChars[(b >> 4) & 0xF];
-    hex += hexChars[b & 0xF];
-  }
-  return hex;
-}
-
 // Extract the value of a simple JSON string field (no nesting required).
 // Returns empty string if the field is not found.
 static std::string JsonExtractStringField(const std::string& json, const std::string& fieldName)
@@ -191,8 +143,8 @@ static std::string ConvertClearKeyJwkToDrmLegacy(const std::string& propValue)
 
     if (!kid.empty() && !k.empty())
     {
-      std::string kidHex = Base64UrlToHex(kid);
-      std::string keyHex = Base64UrlToHex(k);
+      std::string kidHex = WebUtils::Base64UrlToHex(kid);
+      std::string keyHex = WebUtils::Base64UrlToHex(k);
 
       if (!kidHex.empty() && !keyHex.empty())
       {

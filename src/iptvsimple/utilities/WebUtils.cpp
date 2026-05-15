@@ -278,7 +278,7 @@ std::map<std::string, std::string> WebUtils::ParseClearKeyHeader(const std::stri
 {
   std::map<std::string, std::string> keys;
 
-  Logger::Log(LEVEL_INFO, "%s raw x-vip-clearkey header: [%s]", __func__, headerValue.c_str());
+  Logger::Log(LEVEL_DEBUG, "%s raw x-vip-clearkey header: [%s]", __func__, headerValue.c_str());
 
   std::istringstream stream(headerValue);
   std::string pair;
@@ -296,7 +296,7 @@ std::map<std::string, std::string> WebUtils::ParseClearKeyHeader(const std::stri
     StringUtils::Trim(key);
     if (kid.empty() || key.empty()) continue;
 
-    Logger::Log(LEVEL_INFO, "%s raw KID=[%s] (len=%zu)  KEY=[%s] (len=%zu)",
+    Logger::Log(LEVEL_DEBUG, "%s raw KID=[%s] (len=%zu)  KEY=[%s] (len=%zu)",
                 __func__, kid.c_str(), kid.length(), key.c_str(), key.length());
 
     std::string kidHex;
@@ -305,19 +305,19 @@ std::map<std::string, std::string> WebUtils::ParseClearKeyHeader(const std::stri
     {
       kidHex = kid;
       ToLowerInPlace(kidHex);
-      Logger::Log(LEVEL_INFO, "%s KID recognised as 32-char hex -> %s", __func__, kidHex.c_str());
+      Logger::Log(LEVEL_DEBUG, "%s KID recognised as 32-char hex -> %s", __func__, kidHex.c_str());
     }
     else if (kid.length() == 36 && kid[8] == '-')
     {
       kidHex = kid;
       kidHex.erase(std::remove(kidHex.begin(), kidHex.end(), '-'), kidHex.end());
       ToLowerInPlace(kidHex);
-      Logger::Log(LEVEL_INFO, "%s KID recognised as UUID -> stripped hex: %s", __func__, kidHex.c_str());
+      Logger::Log(LEVEL_DEBUG, "%s KID recognised as UUID -> stripped hex: %s", __func__, kidHex.c_str());
     }
     else
     {
       kidHex = Base64UrlToHex(kid);
-      Logger::Log(LEVEL_INFO, "%s KID treated as Base64url -> hex: %s", __func__, kidHex.c_str());
+      Logger::Log(LEVEL_DEBUG, "%s KID treated as Base64url -> hex: %s", __func__, kidHex.c_str());
     }
 
     std::string keyHex;
@@ -326,17 +326,17 @@ std::map<std::string, std::string> WebUtils::ParseClearKeyHeader(const std::stri
     {
       keyHex = key;
       ToLowerInPlace(keyHex);
-      Logger::Log(LEVEL_INFO, "%s KEY recognised as 32-char hex -> %s", __func__, keyHex.c_str());
+      Logger::Log(LEVEL_DEBUG, "%s KEY recognised as 32-char hex -> %s", __func__, keyHex.c_str());
     }
     else
     {
       keyHex = Base64UrlToHex(key);
-      Logger::Log(LEVEL_INFO, "%s KEY treated as Base64url -> hex: %s", __func__, keyHex.c_str());
+      Logger::Log(LEVEL_DEBUG, "%s KEY treated as Base64url -> hex: %s", __func__, keyHex.c_str());
     }
 
     if (!kidHex.empty() && !keyHex.empty())
     {
-      Logger::Log(LEVEL_INFO, "%s accepted pair  KID=%s  KEY=%s", __func__, kidHex.c_str(), keyHex.c_str());
+      Logger::Log(LEVEL_DEBUG, "%s accepted pair  KID=%s  KEY=%s", __func__, kidHex.c_str(), keyHex.c_str());
       keys[kidHex] = keyHex;
     }
     else
@@ -360,7 +360,7 @@ std::map<std::string, std::string> WebUtils::ParseJsonHeaders(
 {
   std::map<std::string, std::string> headers;
 
-  Logger::Log(LEVEL_INFO, "%s raw %s: [%s]", __func__, headerName.c_str(), headerValue.c_str());
+  Logger::Log(LEVEL_DEBUG, "%s raw %s: [%s]", __func__, headerName.c_str(), headerValue.c_str());
 
   const std::string& s = headerValue;
   size_t i = 0;
@@ -443,7 +443,7 @@ std::map<std::string, std::string> WebUtils::ParseJsonHeaders(
       break;
     }
 
-    Logger::Log(LEVEL_INFO, "%s [%s] parsed: [%s] = [%s]",
+    Logger::Log(LEVEL_DEBUG, "%s [%s] parsed: [%s] = [%s]",
                 __func__, headerName.c_str(), key.c_str(), value.c_str());
     headers[key] = value;
 
@@ -518,7 +518,8 @@ PhpRedirectInfo WebUtils::FetchPhpRedirectInfo(const std::string& phpUrl)
   {
     info.licenceUrl = licenceUrlHdr;
     StringUtils::Trim(info.licenceUrl);
-    Logger::Log(LEVEL_INFO, "%s x-vip-licenceurl: [%s]", __func__, info.licenceUrl.c_str());
+    Logger::Log(LEVEL_INFO, "%s x-vip-licenceurl present: [%s]", __func__, RedactUrl(info.licenceUrl).c_str());
+    Logger::Log(LEVEL_DEBUG, "%s x-vip-licenceurl raw: [%s]", __func__, info.licenceUrl.c_str());
   }
   else
   {

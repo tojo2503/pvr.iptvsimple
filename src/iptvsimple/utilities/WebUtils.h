@@ -70,8 +70,13 @@ namespace iptvsimple
        */
       static std::string HexToBase64Url(const std::string& hex);
 
-    private:
+      /**
+       * Convert a Base64url (or standard Base64) string to lowercase hex.
+       * Tolerant of missing padding and unknown chars.
+       */
       static std::string Base64UrlToHex(const std::string& input);
+
+    private:
       static std::map<std::string, std::string> ParseClearKeyHeader(const std::string& headerValue);
       static std::map<std::string, std::string> ParseJsonHeaders(const std::string& headerName,
                                                                   const std::string& headerValue);

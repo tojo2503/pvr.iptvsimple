@@ -16,7 +16,6 @@
 #include "iptvsimple/IConnectionListener.h"
 #include "iptvsimple/Media.h"
 #include "iptvsimple/PlaylistLoader.h"
-#include "iptvsimple/StreamManager.h"
 #include "iptvsimple/data/Channel.h"
 
 #include <atomic>
@@ -112,7 +111,6 @@ private:
   iptvsimple::PlaylistLoader m_playlistLoader{this, m_channels, m_channelGroups, m_providers, m_media, m_settings};
   iptvsimple::Epg m_epg{this, m_channels, m_media, m_settings};
   iptvsimple::CatchupController m_catchupController{m_epg, &m_mutex, m_settings};
-  iptvsimple::StreamManager m_streamManager;
   iptvsimple::ConnectionManager* connectionManager;
 
   std::atomic<bool> m_running{false};

@@ -161,6 +161,17 @@
         </setting>
       </group>
 
+      <group id="9" label="30904">
+        <setting id="recorderUrl" type="string" label="30905" help="30906">
+          <level>0</level>
+          <default></default>
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string" />
+        </setting>
+      </group>
+
       <group id="4" label="30006">
         <setting id="defaultProviderName" type="string" label="30007" help="30740">
           <level>2</level>

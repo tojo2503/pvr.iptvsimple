@@ -33,6 +33,7 @@ set(IPTV_SOURCES src/addon.cpp
                  src/iptvsimple/Media.cpp
                  src/iptvsimple/PlaylistLoader.cpp
                  src/iptvsimple/Providers.cpp
+                 src/iptvsimple/Recorder.cpp
                  src/iptvsimple/StreamManager.cpp
                  src/iptvsimple/data/Channel.cpp
                  src/iptvsimple/data/ChannelEpg.cpp
@@ -62,6 +63,8 @@ set(IPTV_HEADERS src/addon.h
                  src/iptvsimple/InstanceSettings.h
                  src/iptvsimple/Media.h
                  src/iptvsimple/PlaylistLoader.h
+                 src/iptvsimple/Recorder.h
+                 src/iptvsimple/utilities/Json.h
                  src/iptvsimple/Providers.cpp
                  src/iptvsimple/StreamManager.h
                  src/iptvsimple/data/BaseEntry.h

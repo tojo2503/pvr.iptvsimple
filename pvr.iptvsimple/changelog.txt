@@ -1,3 +1,7 @@
+v99.1.0
+- Recordings via recording server (setting "Recording server"): timers from EPG, instant
+  recording, manual timers, series rules, recordings with resume and play count
+
 v99.0.0
 - Private DRM build by tojo2503 - version pinned high so the official repo never overwrites it
 - Marked as private fork in addon name, provider and description

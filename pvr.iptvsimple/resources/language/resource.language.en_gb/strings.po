@@ -1150,3 +1150,18 @@ msgstr ""
 msgctxt "#30903"
 msgid "When switching between PHP-proxy channels, how long to wait for the previous Kodi stream to fully close before kicking off the new PHP request.  Prevents Android MediaCodec InstanceGuard contention on slow devices.  0 disables the wait entirely."
 msgstr ""
+
+#. label-group: General Settings - Recordings
+msgctxt "#30904"
+msgid "Recordings"
+msgstr ""
+
+#. label: General Settings - recorderUrl
+msgctxt "#30905"
+msgid "Recording server (e.g. http://10.0.10.115:8091)"
+msgstr ""
+
+#. help: General Settings - recorderUrl
+msgctxt "#30906"
+msgid "Address of the recording server. It records, decrypts and stores live TV and provides timers, series and recordings. Leave empty to disable recordings."
+msgstr ""

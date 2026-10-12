@@ -16,6 +16,7 @@
 #include "iptvsimple/IConnectionListener.h"
 #include "iptvsimple/Media.h"
 #include "iptvsimple/PlaylistLoader.h"
+#include "iptvsimple/Recorder.h"
 #include "iptvsimple/data/Channel.h"
 
 #include <atomic>
@@ -77,6 +78,17 @@ public:
   PVR_ERROR GetRecordingsAmount(bool deleted, int& amount) override;
   PVR_ERROR GetRecordings(bool deleted, kodi::addon::PVRRecordingsResultSet& results) override;
   PVR_ERROR GetRecordingStreamProperties(const kodi::addon::PVRRecording& recording, std::vector<kodi::addon::PVRStreamProperty>& properties) override;
+  PVR_ERROR DeleteRecording(const kodi::addon::PVRRecording& recording) override;
+  PVR_ERROR SetRecordingPlayCount(const kodi::addon::PVRRecording& recording, int count) override;
+  PVR_ERROR SetRecordingLastPlayedPosition(const kodi::addon::PVRRecording& recording, int lastplayedposition) override;
+  PVR_ERROR GetRecordingLastPlayedPosition(const kodi::addon::PVRRecording& recording, int& position) override;
+
+  PVR_ERROR GetTimerTypes(std::vector<kodi::addon::PVRTimerType>& types) override;
+  PVR_ERROR GetTimersAmount(int& amount) override;
+  PVR_ERROR GetTimers(kodi::addon::PVRTimersResultSet& results) override;
+  PVR_ERROR AddTimer(const kodi::addon::PVRTimer& timer) override;
+  PVR_ERROR UpdateTimer(const kodi::addon::PVRTimer& timer) override;
+  PVR_ERROR DeleteTimer(const kodi::addon::PVRTimer& timer, bool forceDelete) override;
 
   //@}
 
@@ -86,6 +98,10 @@ public:
 
   // For catchup
   bool GetChannel(unsigned int uniqueChannelId, iptvsimple::data::Channel& myChannel);
+
+  // For the recording server
+  bool RecorderChannelByUid(int uid, iptvsimple::RecorderChannel& channel);
+  bool RecorderChannelByUrl(const std::string& url, iptvsimple::RecorderChannel& channel);
   iptvsimple::CatchupController& GetCatchupController() { return m_catchupController; }
   //@}
 
@@ -94,6 +110,8 @@ protected:
 
 private:
   static const int PROCESS_LOOP_WAIT_SECS = 2;
+  // How often to ask the recording server for changes
+  static const int RECORDER_POLL_SECS = 30;
 
   // Polling granularity (ms) while waiting for StreamClosed().  Not exposed
   // as a setting — pure tuning constant.
@@ -118,6 +136,7 @@ private:
   iptvsimple::PlaylistLoader m_playlistLoader{this, m_channels, m_channelGroups, m_providers, m_media, m_settings};
   iptvsimple::Epg m_epg{this, m_channels, m_media, m_settings};
   iptvsimple::CatchupController m_catchupController{m_epg, &m_mutex, m_settings};
+  iptvsimple::Recorder m_recorder{m_settings};
   iptvsimple::ConnectionManager* connectionManager;
 
   std::atomic<bool> m_running{false};

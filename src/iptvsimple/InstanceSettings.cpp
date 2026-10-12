@@ -160,6 +160,9 @@ void InstanceSettings::ReadSettings()
   m_instance.CheckInstanceSettingInt("connectioncheckinterval", m_connectioncCheckIntervalSecs);
   m_instance.CheckInstanceSettingInt("phpResolverConnectionTimeout", m_phpResolverConnectionTimeoutSecs);
   m_instance.CheckInstanceSettingInt("phpStreamCloseWait", m_phpStreamCloseWaitSecs);
+
+  // Recording server
+  m_instance.CheckInstanceSettingString("recorderUrl", m_recorderUrl);
 }
 
 void InstanceSettings::ReloadAddonInstanceSettings()
@@ -206,6 +209,9 @@ ADDON_STATUS InstanceSettings::SetSetting(const std::string& settingName, const 
     return SetSetting<int, ADDON_STATUS>(settingName, settingValue, m_phpResolverConnectionTimeoutSecs, ADDON_STATUS_OK, ADDON_STATUS_OK);
   else if (settingName == "phpStreamCloseWait")
     return SetSetting<int, ADDON_STATUS>(settingName, settingValue, m_phpStreamCloseWaitSecs, ADDON_STATUS_OK, ADDON_STATUS_OK);
+  // Capabilities (timers, recordings) depend on it, so the instance has to restart
+  else if (settingName == "recorderUrl")
+    return SetStringSetting<ADDON_STATUS>(settingName, settingValue, m_recorderUrl, ADDON_STATUS_NEED_RESTART, ADDON_STATUS_OK);
   else if (settingName == "defaultProviderName")
     return SetStringSetting<ADDON_STATUS>(settingName, settingValue, m_defaultProviderName, ADDON_STATUS_OK, ADDON_STATUS_OK);
   else if (settingName == "enableProviderMappings")

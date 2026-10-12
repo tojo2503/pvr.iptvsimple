@@ -1083,3 +1083,15 @@ msgstr "Auswählen, wie der M3U-Gruppentitel im Pfad verwendet wird. Bitte beach
 msgctxt "#30806"
 msgid "Force the full playlist to be media, regardless of what tags are present.  Since the introduction of multiple instances for PVR add-ons this option can be useful."
 msgstr "Erzwingen, dass die gesamte Wiedergabeliste für Medien ist, ungeachtet welche Tags vergügbar sind. Seit Einführung mehrerer Instanzen für PVR-Addons kann diese Option hilfreich sein."
+
+msgctxt "#30904"
+msgid "Recordings"
+msgstr "Aufnahmen"
+
+msgctxt "#30905"
+msgid "Recording server (e.g. http://10.0.10.115:8091)"
+msgstr "Aufnahme-Server (z. B. http://10.0.10.115:8091)"
+
+msgctxt "#30906"
+msgid "Address of the recording server. It records, decrypts and stores live TV and provides timers, series and recordings. Leave empty to disable recordings."
+msgstr "Adresse des Aufnahme-Servers. Er nimmt Live-TV auf, entschlüsselt und speichert es und stellt Timer, Serien und Aufnahmen bereit. Leer lassen, um Aufnahmen auszuschalten."

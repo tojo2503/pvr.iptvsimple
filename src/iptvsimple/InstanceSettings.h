@@ -182,6 +182,7 @@ namespace iptvsimple
     int GetConnectioncCheckIntervalSecs() const { return m_connectioncCheckIntervalSecs; }
     int GetPhpResolverConnectionTimeoutSecs() const { return m_phpResolverConnectionTimeoutSecs; }
     int GetPhpStreamCloseWaitMs() const { return m_phpStreamCloseWaitSecs * 1000; }
+    const std::string& GetRecorderUrl() const { return m_recorderUrl; }
 
     const std::string& GetTvgUrl() const { return m_tvgUrl; }
     void SetTvgUrl(const std::string& tvgUrl) { m_tvgUrl = tvgUrl; }
@@ -352,6 +353,9 @@ namespace iptvsimple
     // Seconds to wait for the previous Kodi stream to close before kicking off
     // a PHP HTTP request.  0 disables the wait entirely.
     int m_phpStreamCloseWaitSecs = 8;
+
+    // Recording server (HTTP/JSON API); empty = recordings off
+    std::string m_recorderUrl;
 
     std::vector<std::string> m_customTVChannelGroupNameList;
     std::vector<std::string> m_customRadioChannelGroupNameList;

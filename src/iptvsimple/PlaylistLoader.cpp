@@ -708,6 +708,22 @@ void PlaylistLoader::ParseSinglePropertyIntoChannel(const std::string& line, Cha
       // inputstream.adaptive 21.x:  org.w3.clearkey|KID_HEX:KEY_HEX[,...]
       propValue = ConvertClearKeyJwkToDrmLegacy(propValue);
     }
+    else if (markerName == KODIPROP_MARKER && prop == "inputstream.adaptive.license_key")
+    {
+      // Old ISA format: license_type=clearkey + license_key=<JWK JSON or KID:KEY>.
+      // ISA 21+ dropped these properties; convert transparently to drm_legacy so
+      // providers that haven't updated their M3U still work.
+      // Works for both bare JWK JSON payloads and plain KID_HEX:KEY_HEX values.
+      prop     = "inputstream.adaptive.drm_legacy";
+      propValue = ConvertClearKeyJwkToDrmLegacy("org.w3.clearkey|" + propValue);
+      Logger::Log(LEVEL_DEBUG, "%s - Rewrote legacy license_key -> drm_legacy: %s", __FUNCTION__, propValue.c_str());
+    }
+    else if (markerName == KODIPROP_MARKER && prop == "inputstream.adaptive.license_type"
+             && StringUtils::EqualsNoCase(propValue, "clearkey"))
+    {
+      // Suppress — superseded by the drm_legacy conversion of license_key above.
+      addProperty = false;
+    }
 
     if (addProperty)
       channel.AddProperty(prop, propValue);

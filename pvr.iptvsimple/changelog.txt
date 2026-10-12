@@ -1,3 +1,9 @@
+v99.0.0
+- Private DRM build by tojo2503 - version pinned high so the official repo never overwrites it
+- Marked as private fork in addon name, provider and description
+- Fix race condition on channel switch
+- Add setting for stream resolve timeout
+
 v22.6.1
 - Fix episode part parsing
 

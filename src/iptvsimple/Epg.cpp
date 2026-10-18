@@ -11,7 +11,9 @@
 #include "utilities/Logger.h"
 #include "utilities/XMLUtils.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <regex>
 #include <thread>
 
@@ -106,19 +108,33 @@ bool Epg::LoadEPG(time_t epgWindowStart, time_t epgWindowEnd)
 
   std::string data;
 
+  int readMs = 0;
+  int parseMs = 0;
+
   if (GetXMLTVFileWithRetries(data))
   {
+    auto read = std::chrono::high_resolution_clock::now();
+    readMs = std::chrono::duration_cast<std::chrono::milliseconds>(read - started).count();
+
     std::string decompressedData;
     char* buffer = FillBufferFromXMLTVData(data, decompressedData);
 
     if (!buffer)
       return false;
 
+    // Parse in place (same length and encoding as load_string): the file can be 100+ MB, a
+    // copy costs time and as much memory again
+    const size_t size = std::strlen(buffer);
     xml_document xmlDoc;
-    xml_parse_result result = xmlDoc.load_string(buffer);
+    xml_parse_result result = xmlDoc.load_buffer_inplace(buffer, size, parse_default, encoding_utf8);
+    parseMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                  std::chrono::high_resolution_clock::now() - read).count();
 
     if (!result)
     {
+      // The parser has written terminators into the buffer, make it one string again for the
+      // error context
+      std::replace(buffer, buffer + size, '\0', ' ');
       std::string errorString;
       int offset = GetParseErrorString(buffer, result.offset, errorString);
       Logger::Log(LEVEL_ERROR, "%s - Unable parse EPG XML: %s, offset: %d: \n[ %s \n]", __FUNCTION__, result.description(), offset, errorString.c_str());
@@ -152,7 +168,8 @@ bool Epg::LoadEPG(time_t epgWindowStart, time_t epgWindowEnd)
   int milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
                       std::chrono::high_resolution_clock::now() - started).count();
 
-  Logger::Log(LEVEL_INFO, "%s - EPG Loaded - %d (ms)", __FUNCTION__, milliseconds);
+  Logger::Log(LEVEL_INFO, "%s - EPG Loaded - %d (ms; read %d, parse %d, %zu bytes)", __FUNCTION__,
+              milliseconds, readMs, parseMs, data.size());
 
   return true;
 }

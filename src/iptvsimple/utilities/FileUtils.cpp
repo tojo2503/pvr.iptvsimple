@@ -9,6 +9,8 @@
 
 #include "../InstanceSettings.h"
 
+#include <vector>
+
 #include <lzma.h>
 #include <zlib.h>
 
@@ -51,9 +53,19 @@ int FileUtils::GetFileContents(const std::string& url, std::string& content)
   kodi::vfs::CFile file;
   if (file.OpenFile(url))
   {
-    char buffer[1024];
-    while (int bytesRead = file.Read(buffer, 1024))
-      content.append(buffer, bytesRead);
+    // Large reads: an XMLTV file can be 100+ MB, and every read goes through Kodi's VFS
+    // (e.g. SMB), so 1 KB reads cost seconds
+    const int64_t length = file.GetLength();
+    if (length > 0)
+      content.reserve(static_cast<size_t>(length));
+
+    std::vector<char> buffer(256 * 1024);
+    while (ssize_t bytesRead = file.Read(buffer.data(), buffer.size()))
+    {
+      if (bytesRead < 0)
+        break;
+      content.append(buffer.data(), bytesRead);
+    }
   }
 
   return content.length();

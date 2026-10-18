@@ -52,7 +52,15 @@ bool Epg::Init(int epgMaxPastDays, int epgMaxFutureDays)
     // or not kodi considers it necessary when either 1) we need the EPG logos or 2) for
     // catchup we need a local store of the EPG data
     time_t now = std::time(nullptr);
-    LoadEPG(now - m_epgMaxPastDaysSeconds, now + m_epgMaxFutureDaysSeconds);
+    const time_t windowEnd = now + m_epgMaxFutureDaysSeconds + INIT_WINDOW_GRACE_SECS;
+    if (LoadEPG(now - m_epgMaxPastDaysSeconds, windowEnd))
+    {
+      // Kodi asks for the same window right after startup, only a few seconds later. Remember
+      // what was loaded (with some grace) so that request is served from memory instead of
+      // downloading and parsing the whole XMLTV file a second time.
+      m_lastStart = static_cast<int>(now - m_epgMaxPastDaysSeconds + INIT_WINDOW_GRACE_SECS);
+      m_lastEnd = static_cast<int>(windowEnd);
+    }
     MergeEpgDataIntoMedia();
   }
 

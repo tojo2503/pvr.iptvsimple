@@ -27,6 +27,7 @@ namespace iptvsimple
   static const std::string GENRE_DIR = "/genres";
   static const std::string GENRE_ADDON_DATA_BASE_DIR = ADDON_DATA_BASE_DIR + GENRE_DIR;
   static const int DEFAULT_EPG_MAX_DAYS = 3;
+  static const int INIT_WINDOW_GRACE_SECS = 10 * 60;
 
   enum class XmltvFileFormat
   {
